@@ -15,6 +15,7 @@ What makes that safe is the subject of most of this file.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ import pytest
 from personasim.config import Settings
 from personasim.conversation import EVERYDAY, Conversation, everyday_for, is_improvised
 from personasim.conversation.improvise import improvise
+from personasim.llm import render_now
 from personasim.llm.base import ChatMessage
 from personasim.models import Identity, Persona, RelationshipMemory, SemanticMemory
 from personasim.persona import build_persona, read_seed_file
@@ -37,12 +39,14 @@ class Fixed:
     def __init__(self, value: str = "toast and black coffee") -> None:
         self.value = value
         self.asked: list[str] = []
+        self.prompts: list[list[ChatMessage]] = []
 
     @property
     def model(self) -> str:
         return "fixed"
 
     def generate(self, messages: Sequence[ChatMessage]) -> str:
+        self.prompts.append(list(messages))
         self.asked.append(messages[-1].content)
         return self.value
 
@@ -136,87 +140,69 @@ class TestSheKeepsWhatSheMadeUp:
         assert breakfast.importance < 0.5
 
 
-class TestTheDateAndTheClockDieWithTheConversation:
-    """What she ate is still true tomorrow. What day it is, is not.
+class TestTheClockIsToldNotInvented:
+    """The date and the time were improvised for a while, and that was a mistake.
 
-    A persisted "today is Tuesday" is a lie by Wednesday, and a persisted clock is a
-    lie within the hour. So the date and the time are improvised into the *live*
-    persona — retrieval reaches them, she answers from them, she says the same thing
-    all conversation — and then they go, exactly as working memory does.
+    "What did you have for breakfast?" has no true answer — she did not really eat,
+    so something has to be made up. "What day is it?" *does* have a true answer, and
+    the system has known it all along. Making her invent a fact that was sitting in
+    `datetime.now()` was inventing for the sake of it.
+
+    So it is injected, exactly as identity is: a fact she is handed, not a memory she
+    holds. It needs no storage, because a clock is right by construction and a stored
+    one is wrong within the hour.
     """
 
-    def test_the_date_is_the_same_all_conversation(
-        self, elena: Persona, database: Database
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "What day is it today?",
+            "What time is it now?",
+            "What is the date?",
+        ],
+    )
+    def test_the_clock_is_never_improvised(
+        self, elena: Persona, database: Database, question: str
     ) -> None:
-        llm = Fixed("Tuesday the twelfth")
+        llm = Fixed()
+
+        with Conversation(elena, llm, database, Settings()) as chat:
+            reply = chat.send(question)
+
+        assert not [memory for memory in reply.formed if is_improvised(memory)]
+        assert not [q for q in llm.asked if "what day of the week" in q]
+
+    def test_the_clock_is_never_written_down(self, elena: Persona, database: Database) -> None:
+        """A stored clock is wrong within the hour."""
+        with Conversation(elena, Fixed(), database, Settings()) as chat:
+            chat.send("What day is it today?")
+            chat.send("What time is it now?")
+
+        with database.session() as db:
+            stored = MemoryRepository(db).list_memories("elena-marsh")
+
+        assert not [
+            memory
+            for memory in stored
+            if isinstance(memory, SemanticMemory) and memory.attribute in ("date", "time")
+        ]
+
+    def test_the_real_time_reaches_the_prompt(self, elena: Persona, database: Database) -> None:
+        llm = Fixed()
 
         with Conversation(elena, llm, database, Settings()) as chat:
             chat.send("What day is it today?")
-            asked_once = len([q for q in llm.asked if "what day of the week" in q])
 
-            again = chat.send("Sorry, what was the date again?")
+        now = datetime.now()
+        system = llm.prompts[-1][0].content
 
-        assert asked_once == 1
-        # never improvised twice — the second answer came from memory
-        assert len([q for q in llm.asked if "what day of the week" in q]) == 1
-        assert any("Tuesday the twelfth" in item.summary for item in again.trace.retrieved)
+        assert now.strftime("%A") in system
+        assert now.strftime("%-I:%M").lstrip("0") in system
 
-    def test_the_date_is_never_written_down(self, elena: Persona, database: Database) -> None:
-        with Conversation(elena, Fixed("Tuesday the twelfth"), database, Settings()) as chat:
-            chat.send("What day is it today?")
-            chat.send("What time is it now?")
-
-        with database.session() as db:
-            stored = MemoryRepository(db).list_memories("elena-marsh")
-
-        assert not any(
-            memory.attribute in ("date", "time")
-            for memory in stored
-            if isinstance(memory, SemanticMemory)
-        )
-        assert not any("Tuesday the twelfth" in memory.summary for memory in stored)
-
-    def test_a_new_conversation_gets_a_new_date(self, elena: Persona, database: Database) -> None:
-        """It must not be yesterday's Tuesday. The whole reason it is not written
-        down is that it would be wrong tomorrow."""
-        with Conversation(elena, Fixed("Tuesday the twelfth"), database, Settings()) as monday:
-            monday.send("What day is it today?")
-
-        tomorrow = Fixed("Wednesday the thirteenth")
-        with Conversation(reload(database), tomorrow, database, Settings()) as tuesday:
-            reply = tuesday.send("What day is it today?")
-
-        # the model *was* asked again, and its new answer is the one she gives
-        assert [q for q in tomorrow.asked if "what day of the week" in q]
-        assert any("Wednesday the thirteenth" in item.summary for item in reply.trace.retrieved)
-
-    def test_a_meal_still_survives_the_session(self, elena: Persona, database: Database) -> None:
-        """The distinction, asserted from the other side: the date goes, breakfast
-        stays."""
-        with Conversation(elena, Fixed("toast"), database, Settings()) as chat:
-            chat.send("What day is it today?")
-            chat.send("What did you have for breakfast?")
-
-        with database.session() as db:
-            stored = MemoryRepository(db).list_memories("elena-marsh")
-
-        assert any("For breakfast I had toast" in memory.summary for memory in stored)
-
-    def test_consolidation_cannot_write_an_ephemeral_memory(
-        self, elena: Persona, database: Database
-    ) -> None:
-        """The one path that could sneak it into the database: consolidation
-        "updating" a survivor that was never inserted."""
-        with Conversation(elena, Fixed("Tuesday"), database, Settings()) as chat:
-            chat.send("What day is it today?")
-            chat.send("What time is it now?")
-            plan = chat.end()
-
-        with database.session() as db:
-            stored = MemoryRepository(db).list_memories("elena-marsh")
-
-        assert plan.is_empty
-        assert not any("Tuesday" in memory.summary for memory in stored)
+    def test_she_is_told_she_knows_it(self, elena: Persona, database: Database) -> None:
+        """Not "it does not come to mind". A healthy person knows what day it is —
+        losing that is a *symptom*, which is Phase 2's business, not Phase 1's."""
+        assert "you know them" in render_now().lower() or "you know this" in render_now().lower()
 
 
 class TestSheMayNotImproviseHerLife:
@@ -303,8 +289,6 @@ class TestTheQuestionIsMatchedByRule:
             ("What did you have for dinner?", "dinner"),
             ("Did you eat anything today?", "breakfast"),
             ("How did you sleep last night?", "sleep"),
-            ("What day is it today?", "date"),
-            ("What time is it now?", "time"),
             ("What have you been doing today?", "activity"),
         ],
     )

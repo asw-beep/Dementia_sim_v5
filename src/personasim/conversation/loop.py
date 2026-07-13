@@ -27,7 +27,7 @@ from personasim.llm.context_builder import build_messages
 from personasim.memory.formation import ConsolidationPlan, consolidate, form_memories
 from personasim.memory.working import WorkingMemory
 from personasim.models.conversation import Message, Role, SessionId, Turn
-from personasim.models.memory import Memory, MemoryId, SemanticMemory
+from personasim.models.memory import Memory, SemanticMemory
 from personasim.models.persona import Persona
 from personasim.models.trace import MemoryTrace, RetrievalIntent
 from personasim.retrieval.engine import RetrievalEngine
@@ -99,11 +99,6 @@ class Conversation:
         # that has ended must still be able to say which session it *was*, or the
         # session it wrote to the log becomes unfindable the moment it closes.
         self._session_id = self._working.session_id
-
-        # Improvised memories that must never be written down: the date, the clock.
-        # They live in the persona object for as long as this conversation does, and
-        # go when it goes.
-        self._ephemeral: set[MemoryId] = set()
 
         self._started = False
         self._ended = False
@@ -204,9 +199,7 @@ class Conversation:
         if improvised is not None:
             formed = [improvised, *formed]
 
-        # The date and the time are held for the conversation and never written down.
-        # What she ate is still true tomorrow; what day it is, is not.
-        self._record(turn, [memory for memory in formed if memory.id not in self._ephemeral])
+        self._record(turn, formed)
         return Reply(text=reply_text, trace=trace, formed=formed)
 
     def _improvise(self, text: str, trace: MemoryTrace) -> SemanticMemory | None:
@@ -235,20 +228,8 @@ class Conversation:
         if memory is None:
             return None
 
-        if everyday.session_only:
-            # Into the live persona, so retrieval reaches it and she says the same
-            # thing all conversation — but never into the database. A persisted
-            # "today is Tuesday" is a lie by Wednesday. It dies with the session,
-            # exactly as working memory does.
-            self._ephemeral.add(memory.id)
-
         self._remember([memory])
-        log.debug(
-            "conversation.improvised",
-            session=self.session_id,
-            memory=memory.summary,
-            kept=not everyday.session_only,
-        )
+        log.debug("conversation.improvised", session=self.session_id, memory=memory.summary)
         return memory
 
     # --- formation ---------------------------------------------------------
@@ -279,12 +260,7 @@ class Conversation:
         self._persona.memories = [*self._persona.memories, *memories]
 
     def _consolidate(self) -> ConsolidationPlan:
-        # Ephemeral memories are not in the database, so consolidation must not reach
-        # them: a survivor it "updated" would be silently *inserted*, and today's date
-        # would outlive the conversation it belonged to.
-        plan = consolidate(
-            [memory for memory in self._persona.memories if memory.id not in self._ephemeral]
-        )
+        plan = consolidate(self._persona.memories)
         if plan.is_empty:
             return plan
 

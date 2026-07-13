@@ -54,14 +54,6 @@ class Everyday:
     phrasing: str
     #: What the model is asked to supply.
     asked_for: str
-    #: Held for this conversation and never written down.
-    #:
-    #: What she ate is true tomorrow as well; what day it is, is not. A persisted
-    #: "today is Tuesday" is a lie by Wednesday, and a persisted clock is a lie
-    #: within the hour. So the date and the time are improvised into the live
-    #: persona — retrieval reaches them, she answers from them, she stays consistent
-    #: for the whole conversation — and then they go, exactly as working memory does.
-    session_only: bool = False
 
 
 # Exhaustive, and deliberately dull. Every entry is a fact about her *day*. None of
@@ -69,8 +61,7 @@ class Everyday:
 #
 # Order matters: the first entry whose keywords the question touches wins. The meals
 # lead, so "what foods did you have today?" is a question about eating rather than
-# about the afternoon, and `date` trails them so "today" cannot drag a meal question
-# off to the calendar.
+# about the afternoon.
 EVERYDAY: tuple[Everyday, ...] = (
     Everyday(
         attribute="breakfast",
@@ -106,22 +97,13 @@ EVERYDAY: tuple[Everyday, ...] = (
         phrasing="Today I have been {value}",
         asked_for="what she has been doing today, in a few words",
     ),
-    # --- session-only, from here down -------------------------------------------
-    Everyday(
-        attribute="date",
-        keywords=("day", "date", "today", "weekday", "week"),
-        phrasing="Today is {value}",
-        asked_for="what day of the week and date it is today",
-        session_only=True,
-    ),
-    Everyday(
-        attribute="time",
-        keywords=("time", "clock", "hour", "late", "early"),
-        phrasing="It is {value}",
-        asked_for="roughly what time of day it is now",
-        session_only=True,
-    ),
 )
+
+# The date and the time are NOT here, and were, briefly. They have a true answer —
+# the system has known it all along — so making her invent one was inventing for the
+# sake of it. `llm.context_builder.render_now` tells her instead, the way identity
+# tells her who she is. A clock is right by construction; a stored clock is wrong
+# within the hour.
 
 # The question must actually be *about* the thing. `eat` reaches breakfast, lunch
 # and dinner alike, so the more specific word wins — the tuple is ordered, and the

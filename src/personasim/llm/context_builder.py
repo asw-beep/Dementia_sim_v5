@@ -19,6 +19,7 @@ It never calls a model, so it can be tested without one.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from personasim.llm.base import ChatMessage, ChatRole
 from personasim.llm.prompts import build_system_prompt
@@ -97,11 +98,15 @@ PREAMBLE = "Everything you can recall bearing on what was just said, in full:"
 NO_MEMORY = (
     "Nothing in your memory bears on this. You do not know the answer.\n"
     "That includes today: what you ate, whether you ate, where you have been, what "
-    "you did this morning, what time it is, how you slept. None of it is in your "
-    "memory, so none of it is known to you.\n"
+    "you did this morning, how you slept. None of it is in your memory, so none of it "
+    "is known to you. (The date and the time are the exception — you are told those, "
+    "above, and you know them.)\n"
     "Say plainly that it does not come to mind. Do not invent an answer, and do not "
     "produce a plausible one because a blank feels unhelpful — a blank *is* the "
-    "answer."
+    "answer.\n"
+    'Say it as a person would. "I don\'t remember", "it\'s gone", "no, I don\'t think '
+    'so" — not "I do not have a memory of being outside today". You are drawing a '
+    "blank, not filing a report."
 )
 
 # Small talk retrieves nothing by design. Saying "you have no memory of this"
@@ -211,6 +216,37 @@ def _heading_for(memory: Memory) -> str:
     return SECTION_HEADING[memory.type]
 
 
+def render_now(when: datetime | None = None) -> str:
+    """What day it is, and what time. Told to her, never invented.
+
+    This was improvised for a while, and that was a mistake. "What did you have for
+    breakfast?" has no true answer — she did not really eat, so something has to be
+    made up. "What day is it?" *does* have a true answer, and the system has known it
+    all along. Making her invent a fact that was sitting in `datetime.now()` was
+    inventing for the sake of it.
+
+    So it is injected, exactly as identity is: a fact she is handed, not a memory she
+    holds and not a sentence she composes. It needs no storage, because a clock is
+    right by construction and a stored one would be wrong within the hour.
+
+    A healthy person knows what day it is. Losing that is a *symptom*, which makes
+    this the natural seam for Phase 2 to degrade — and it can, without touching a
+    memory, because the truth is here rather than in the database.
+    """
+    now = when or datetime.now()
+    return (
+        f"Right now it is {now.strftime('%A, %-d %B %Y')}. "
+        f"The time is {now.strftime('%-I:%M %p').lower()}.\n"
+        "You know this the way anyone knows what day it is. If you are asked, say so "
+        "plainly; do not guess, and do not say it does not come to mind.\n"
+        "But say it as a person would, not as a clock would. Asked the day, you say "
+        '"Monday" — not "it is Monday, the thirteenth of July, two thousand and '
+        'twenty-six". Asked the time, you glance and say "just gone five" or "about '
+        'half past" — nobody recites the minute unless they are asked for it. Give '
+        "the whole date only if the whole date is what was wanted."
+    )
+
+
 def render_speaker(name: str) -> str:
     """Who "I" is, and who "you" is.
 
@@ -300,7 +336,7 @@ def build_messages(
     system = build_system_prompt(
         identity,
         build_memory_context(trace, source),
-        cast=f"{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
+        cast=f"{render_now()}\n\n{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
     )
     return [
         ChatMessage(role=ChatRole.SYSTEM, content=system),

@@ -12,6 +12,7 @@ which skip when Ollama is not running.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ from personasim.llm.context_builder import (
     NO_MEMORY,
     NO_RECALL_NEEDED,
     render_cast,
+    render_now,
     render_speaker,
 )
 from personasim.llm.ollama import OllamaClient, strip_thinking
@@ -436,6 +438,33 @@ class TestTheCastIsClosed:
         alone = PersonaMemorySource(Persona(identity=identity, memories=[]))
 
         assert render_cast(alone) == ""
+
+
+class TestSheKnowsWhatDayItIs:
+    """Told, not invented. "What did you have for breakfast?" has no true answer;
+    "what day is it?" does, and the system has known it all along."""
+
+    def test_the_clock_is_a_fact_she_is_handed(self) -> None:
+        told = render_now(datetime(2026, 7, 13, 17, 19))
+
+        assert "Monday, 13 July 2026" in told
+        assert "5:19 pm" in told
+
+    def test_she_is_told_she_knows_it_rather_than_to_guess(self) -> None:
+        told = render_now(datetime(2026, 7, 13, 17, 19))
+
+        assert "do not guess" in told
+        assert "does not come to mind" in told  # ...and is told NOT to say that
+
+    def test_it_reaches_every_prompt(
+        self, elena: Persona, engine: RetrievalEngine, source: MemorySource
+    ) -> None:
+        """Injected like identity — present whether or not the question is about it."""
+        messages = build_messages(
+            elena.identity, engine.retrieve("Where do you live?"), source, "Where do you live?"
+        )
+
+        assert "Right now it is" in messages[0].content
 
 
 class TestWhoIIs:

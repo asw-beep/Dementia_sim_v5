@@ -20,6 +20,7 @@ from personasim.llm.context_builder import (
     build_memory_context,
     build_messages,
     render_cast,
+    render_now,
     render_speaker,
     to_chat_messages,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "build_system_prompt",
     "render_cast",
     "render_identity",
+    "render_now",
     "render_speaker",
     "to_chat_messages",
 ]

@@ -41,12 +41,20 @@ memory"*, and it is bounded by two things. Do not loosen either:
   come to mind. **The cast stays closed: she cannot manufacture a relative and then
   believe in her for the rest of her life.**
 
-**The date and the clock are session-only.** What she ate is still true tomorrow;
-what day it is, is not. A persisted "today is Tuesday" is a lie by Wednesday. So
-`date` and `time` are marked `session_only` — improvised into the *live* persona so
-retrieval reaches them and she stays consistent all conversation, and never written
-to the database. Consolidation is shielded from them too, since an "updated" survivor
-that was never inserted would be silently *created*.
+**The date and the clock are told, not improvised.** They were improvised for a
+while, and that was a mistake: "what did you have for breakfast?" has no true answer,
+but *"what day is it?" does* — the system has known it all along. Making her invent a
+fact sitting in `datetime.now()` was inventing for the sake of it. `render_now()`
+injects it, exactly as identity is injected: a fact she is handed, not a memory she
+holds. No storage — a clock is right by construction, and a stored clock is wrong
+within the hour.
+
+She is told to say it **as a person would**: "It's Monday", "just gone five" — not to
+recite the ISO date. A clock reads out the minute; a person glances.
+
+This is also the natural seam for Phase 2. A healthy person knows what day it is;
+losing that is a *symptom*, and it can be degraded here without touching a single
+memory.
 
 And note what still holds: the model is asked for a *value*, never for prose that is
 read back. `memory/formation/` still cannot import the LLM, and the invariant test
