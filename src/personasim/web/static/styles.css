@@ -1,0 +1,314 @@
+:root {
+  --bg: #12110f;
+  --panel: #1b1a17;
+  --line: #2e2c28;
+  --ink: #eae6de;
+  --muted: #8f897e;
+  --user: #2f5d50;
+  --her: #24221e;
+  --accent: #c9a227;
+  --danger: #a5453b;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f5f0;
+    --panel: #fffdf8;
+    --line: #e3ded2;
+    --ink: #23211d;
+    --muted: #7a7466;
+    --user: #d6ebe2;
+    --her: #f0ece2;
+    --accent: #8a6d1f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 ui-serif, Georgia, "Times New Roman", serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+.muted {
+  color: var(--muted);
+}
+
+/* ---------------- gallery ---------------- */
+
+#gallery {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 64px 24px;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.gallery-head h1 {
+  margin: 0 0 4px;
+  font-size: 34px;
+  letter-spacing: -0.01em;
+}
+.gallery-head p {
+  margin: 0 0 32px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+.card:hover,
+.card:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.card .role {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.card p.desc {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink);
+  opacity: 0.85;
+  /* two lines, as authored */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.empty {
+  color: var(--muted);
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  background: var(--panel);
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+/* ---------------- chat ---------------- */
+
+#chat {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+.navbar .who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  margin-right: auto;
+}
+.navbar .who span:first-child {
+  font-size: 17px;
+}
+.navbar .who .muted {
+  font-size: 12px;
+}
+.navbar .actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  font: inherit;
+  font-size: 14px;
+  border-radius: 9px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+button.danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+#send {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #12110f;
+}
+
+.messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.row {
+  display: flex;
+}
+.row.user {
+  justify-content: flex-end;
+}
+.row.persona {
+  justify-content: flex-start;
+}
+
+.bubble {
+  max-width: 74%;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.row.user .bubble {
+  background: var(--user);
+  border-bottom-right-radius: 4px;
+}
+.row.persona .bubble {
+  background: var(--her);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.thinking {
+  color: var(--muted);
+  font-style: italic;
+}
+.bubble.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* The memory trace: why she said that. Folded away, never hidden. */
+.why {
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.why summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+}
+.why summary::-webkit-details-marker {
+  display: none;
+}
+.why summary:hover {
+  color: var(--accent);
+}
+.why .reason {
+  color: var(--muted);
+  margin: 8px 0 6px;
+}
+.why ul {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--muted);
+}
+.why li {
+  margin-bottom: 3px;
+}
+.why .score {
+  color: var(--accent);
+}
+.why .via {
+  color: var(--muted);
+  opacity: 0.75;
+}
+.why .formed {
+  margin-top: 8px;
+  color: var(--accent);
+}
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px 22px;
+  border-top: 1px solid var(--line);
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+}
+#input {
+  flex: 1;
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+}
+#input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ended {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}

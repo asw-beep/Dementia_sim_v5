@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# Bring the persona up, and take it back down.
+#
+#   ./run start     seed if needed, check the model, serve
+#   ./run kill      stop the server
+#   ./run status    is anything up, and can it reach the model
+#   ./run logs      follow the server log
+#   ./run reset     wipe the database and re-seed (she forgets everything)
+#
+# Everything it starts, it can stop. There is one PID file and one log file, and
+# `kill` uses the PID file rather than pattern-matching the process table, so it
+# cannot take down a server it did not start.
+
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+PORT="${PERSONA_PORT:-8000}"
+SEED="data/personas/elena.yaml"
+PERSONA="elena-marsh"
+RUNTIME=".run"
+PIDFILE="$RUNTIME/server.pid"
+LOGFILE="$RUNTIME/server.log"
+
+mkdir -p "$RUNTIME"
+
+say()  { printf '  %s\n' "$*"; }
+fail() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
+
+running() {
+  [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
+
+# The model lives somewhere else — a remote GPU box, per .env — and it is the one
+# part of this that can simply be absent. Better to say so now than to let the
+# first message fail in the browser.
+model_reachable() {
+  uv run python - <<'PY' 2>/dev/null
+from personasim.config import get_settings
+from personasim.llm import build_client
+settings = get_settings()
+client = build_client(settings)
+print(f"{client.model} @ {settings.llm_host}", end="")
+raise SystemExit(0 if client.is_available() else 1)
+PY
+}
+
+start() {
+  if running; then
+    say "already running: http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    exit 0
+  fi
+
+  printf '\nStarting the persona simulator.\n\n'
+
+  say "checking the model…"
+  if model=$(model_reachable); then
+    say "  ok — $model"
+  else
+    fail "cannot reach the model. Is Ollama up on the host in .env?
+       Check with:  uv run python -c 'from personasim.config import get_settings as g; print(g().llm_host)'"
+  fi
+
+  # Idempotent by memory id, so re-seeding an existing database is a no-op. It will
+  # warn — loudly — if the seed file has been edited since, because a silent skip is
+  # how an edited persona rots in a database.
+  say "seeding $PERSONA…"
+  uv run persona seed "$SEED" 2>&1 | sed 's/^/    /'
+
+  say "serving…"
+  # Loopback on purpose. This app has no authentication; binding it to 0.0.0.0 would
+  # hand Elena, and everything she has been told, to anything on the network.
+  #
+  # `setsid` gives the server its own process group. `uv run` spawns the real server
+  # as a *child*, and killing only the parent leaves an orphan holding the port —
+  # today `uv` happens to forward the signal, but "happens to" is not a thing to
+  # build a shutdown on. The group id is what we record, so `kill` can take down
+  # everything `start` brought up, and nothing else.
+  setsid nohup uv run persona serve --port "$PORT" >"$LOGFILE" 2>&1 &
+  echo $! >"$PIDFILE"
+
+  for _ in $(seq 30); do
+    if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/personas" 2>/dev/null; then
+      printf '\n  ready → http://127.0.0.1:%s\n\n' "$PORT"
+      exit 0
+    fi
+    running || { rm -f "$PIDFILE"; fail "the server died on startup. Log:\n$(tail -20 "$LOGFILE")"; }
+    sleep 0.5
+  done
+
+  fail "the server did not come up in 15s. Log:\n$(tail -20 "$LOGFILE")"
+}
+
+stop() {
+  if ! running; then
+    rm -f "$PIDFILE"
+    say "nothing to stop."
+    exit 0
+  fi
+
+  pid=$(cat "$PIDFILE")
+  say "stopping the server (pid $pid)…"
+
+  # Negative pid = the whole process group, so the server that `uv` spawned goes
+  # with its parent instead of surviving as an orphan on the port.
+  kill -TERM -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+
+  for _ in $(seq 20); do
+    running || break
+    sleep 0.25
+  done
+
+  # It has had five seconds to close its sessions. Now it goes.
+  if running; then
+    say "  it did not stop; forcing."
+    kill -KILL -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    sleep 0.5
+  fi
+
+  rm -f "$PIDFILE"
+
+  if ss -ltn 2>/dev/null | grep -q ":$PORT "; then
+    fail "the server is gone but something still holds port $PORT."
+  fi
+
+  say "stopped."
+}
+
+status() {
+  if running; then
+    say "server:  up   → http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+  else
+    say "server:  down"
+  fi
+
+  if model=$(model_reachable); then
+    say "model:   ok   → $model"
+  else
+    say "model:   unreachable"
+  fi
+
+  if [[ -f data/persona.db ]]; then
+    memories=$(uv run python - <<'PY' 2>/dev/null || echo "?"
+from personasim.storage import Database, PersonaRepository
+from personasim.config import get_settings
+db = Database.from_path(get_settings().database_path)
+with db.session() as session:
+    persona = PersonaRepository(session).load("elena-marsh")
+print(len(persona.memories) if persona else 0, end="")
+PY
+)
+    say "memory:  $memories memories in data/persona.db"
+  else
+    say "memory:  not seeded"
+  fi
+}
+
+case "${1:-}" in
+  start)  start ;;
+  kill|stop) stop ;;
+  status) status ;;
+  logs)   tail -f "$LOGFILE" ;;
+  reset)
+    # She forgets everything — including anything a caregiver told her.
+    stop
+    rm -f data/persona.db
+    say "database wiped."
+    uv run persona seed "$SEED" 2>&1 | sed 's/^/  /'
+    ;;
+  *)
+    printf 'usage: ./run {start|kill|status|logs|reset}\n\n'
+    printf '  start   seed if needed, check the model, serve on :%s\n' "$PORT"
+    printf '  kill    stop the server\n'
+    printf '  status  what is up, and whether the model answers\n'
+    printf '  logs    follow the server log\n'
+    printf '  reset   wipe the database and re-seed (she forgets everything)\n'
+    exit 1
+    ;;
+esac

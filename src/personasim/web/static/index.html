@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Persona Simulator</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <!-- The gallery. One persona today; the layout assumes there will be more. -->
+    <main id="gallery" class="view">
+      <header class="gallery-head">
+        <h1>Personas</h1>
+        <p class="muted">Choose someone to talk to.</p>
+      </header>
+      <div id="cards" class="cards"></div>
+      <p id="gallery-empty" class="empty hidden">
+        No personas yet. Seed one: <code>persona seed data/personas/elena.yaml</code>
+      </p>
+    </main>
+
+    <!-- The conversation. -->
+    <main id="chat" class="view hidden">
+      <nav class="navbar">
+        <button id="back" class="ghost" title="Back to personas">←</button>
+        <div class="who">
+          <span id="chat-name"></span>
+          <span id="chat-sub" class="muted"></span>
+        </div>
+        <div class="actions">
+          <button id="download" class="ghost">Download transcript</button>
+          <button id="end" class="danger">End conversation</button>
+        </div>
+      </nav>
+
+      <div id="messages" class="messages"></div>
+
+      <div id="ended" class="ended hidden">
+        <span>This conversation has ended.</span>
+        <button id="download-ended" class="ghost">Download transcript</button>
+        <button id="back-ended" class="ghost">Back to personas</button>
+      </div>
+
+      <form id="composer" class="composer">
+        <input
+          id="input"
+          type="text"
+          autocomplete="off"
+          placeholder="Say something…"
+          maxlength="2000"
+        />
+        <button id="send" type="submit">Send</button>
+      </form>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
