@@ -85,7 +85,12 @@ TOLD_HEADING = "Things the person you are speaking with has told you about thems
 # "Everything" and "in full" are load-bearing. Handed a list it reads as *notes*,
 # the model fills what looks like a gap; handed the same list as the boundary of
 # what it can recall, it stops at the edge.
-PREAMBLE = "Everything you can recall bearing on what was just said, in full:"
+PREAMBLE = (
+    "Everything you can recall bearing on what was just said, in full.\n"
+    "If it is written here, you DO remember it — so answer from it. Do not say it "
+    "does not come to mind while it is sitting in front of you. A question that "
+    'begins "do you remember…" is still answered from what you remember:'
+)
 
 # Said when retrieval found nothing. The model must be told that a blank is the
 # correct answer, or it will helpfully produce a biography of its own.

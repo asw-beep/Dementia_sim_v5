@@ -285,7 +285,7 @@ class TestMemoryContext:
         self, engine: RetrievalEngine, source: MemorySource
     ) -> None:
         """Section order follows relevance, not a fixed hierarchy of memory types."""
-        about_a_person = build_memory_context(engine.retrieve("Who is Maya?"), source)
+        about_a_person = build_memory_context(engine.retrieve("Who is Henry?"), source)
         about_an_event = build_memory_context(engine.retrieve("Why did you adopt Compass?"), source)
 
         assert about_a_person.index("People in your life:") < about_a_person.index(
@@ -300,8 +300,8 @@ class TestMemoryContext:
     ) -> None:
         context = build_memory_context(engine.retrieve("Tell me about your wedding."), source)
 
-        assert "2014-09-06" in context
-        assert "Maya" in context
+        assert "1981-09-06" in context
+        assert "Henry" in context
 
     def test_a_fact_about_someone_else_is_not_filed_as_a_fact_about_herself(
         self, elena: Persona, engine: RetrievalEngine
@@ -338,9 +338,9 @@ class TestMemoryContext:
     def test_a_person_carries_the_shape_of_the_relationship(
         self, engine: RetrievalEngine, source: MemorySource
     ) -> None:
-        context = build_memory_context(engine.retrieve("Who is Maya?"), source)
+        context = build_memory_context(engine.retrieve("Who is Henry?"), source)
 
-        assert "your wife" in context or "your spouse" in context
+        assert "your husband" in context
         assert "you are very close" in context
 
 
@@ -402,14 +402,14 @@ class TestTheCastIsClosed:
     def test_everyone_the_persona_knows_is_named_every_turn(self, source: MemorySource) -> None:
         cast = render_cast(source)
 
-        for name in ("Maya Okonkwo", "Robert Marsh", "Tom Marsh", "Priya Raman", "Dan Hollis"):
+        for name in ("Henry Calloway", "Robert Marsh", "Tom Marsh", "Priya Raman", "Dan Hollis"):
             assert name in cast
 
     def test_the_cast_says_who_each_person_is(self, source: MemorySource) -> None:
         """Handed her father's memory beside her wife's family home, the model made
-        Robert into Maya's father. The roster fixes each person in place."""
+        Robert into the wrong man's father. The roster fixes each person in place."""
         assert "Robert Marsh (father)" in render_cast(source)
-        assert "Maya Okonkwo (wife)" in render_cast(source)
+        assert "Henry Calloway (husband)" in render_cast(source)
 
     def test_the_cast_is_asserted_to_be_complete(self, source: MemorySource) -> None:
         """Relationship memory is exhaustive by construction, so this is true —
@@ -428,7 +428,7 @@ class TestTheCastIsClosed:
         self, elena: Persona, engine: RetrievalEngine, source: MemorySource
     ) -> None:
         messages = build_messages(
-            elena.identity, engine.retrieve("Who is Maya?"), source, "Who is Maya?"
+            elena.identity, engine.retrieve("Who is Henry?"), source, "Who is Maya?"
         )
 
         assert "There is no one else" in messages[0].content

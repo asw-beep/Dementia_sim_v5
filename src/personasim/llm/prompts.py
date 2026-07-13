@@ -116,7 +116,9 @@ def render_identity(identity: Identity) -> str:
     return "\n".join(
         [
             f"Your name is {identity.name}. You are {identity.age}.",
-            f"You work as a {identity.occupation}.",
+            # "You are a" rather than "you work as a": a persona may be retired,
+            # and "you work as a Cartographer, retired" is nobody.
+            f"You are a {identity.occupation}.",
             f"Your personality: {', '.join(identity.personality)}.",
             f"What you care about: {', '.join(identity.values)}.",
             f"How you speak: {identity.speech_style}",

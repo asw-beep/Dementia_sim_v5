@@ -128,8 +128,12 @@ class TestTheSameQuestionAskedSeveralWays:
                 "cartographer",
             ),
             (
-                ["Who is Maya?", "Tell me about Maya.", "Are you married?"],
-                "Maya",
+                ["Who is Henry?", "Tell me about Henry.", "Are you married?"],
+                "Henry",
+            ),
+            (
+                ["Do you have children?", "Tell me about your daughter.", "Who is Peter?"],
+                "Nora",
             ),
             (
                 ["Tell me about your mother.", "Who was your mother?", "Is your mother alive?"],
@@ -233,7 +237,7 @@ class TestHerDeadAreDead:
         dead mother living."""
         summaries = ask(database_with_elena, "Who all are there in your family?")
 
-        for person in ("Maya", "Robert", "Ruth", "Tom"):
+        for person in ("Henry", "Robert", "Ruth", "Tom"):
             assert any(person in summary for summary in summaries), person
 
 

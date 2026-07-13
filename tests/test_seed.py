@@ -395,18 +395,18 @@ class TestShippedSeedPersona:
         """The wedding links to the spouse; the spouse links back to the wedding."""
         persona = read_seed_file(SEED_FILE).to_persona()
         wedding = persona.by_id(memory_id_for("elena-marsh", "wedding"))
-        maya = persona.by_id(memory_id_for("elena-marsh", "maya"))
+        maya = persona.by_id(memory_id_for("elena-marsh", "henry"))
 
         assert maya.id in wedding.linked_ids(LinkRelation.INVOLVES)
         assert wedding.id in maya.linked_ids(LinkRelation.CONCERNS)
         assert isinstance(maya, RelationshipMemory)
-        assert maya.person_name == "Maya Okonkwo"
+        assert maya.person_name == "Henry Calloway"
 
     def test_dates_parse(self) -> None:
         persona = read_seed_file(SEED_FILE).to_persona()
         wedding = persona.by_id(memory_id_for("elena-marsh", "wedding"))
         assert isinstance(wedding, EpisodicMemory)
-        assert wedding.occurred_on == date(2014, 9, 6)
+        assert wedding.occurred_on == date(1981, 9, 6)
 
     def test_round_trips_through_storage(self, database: Database) -> None:
         expected = read_seed_file(SEED_FILE).to_persona()
@@ -436,8 +436,8 @@ class TestNarrativeSpine:
     def test_timeline_runs_from_childhood_to_the_present(self) -> None:
         persona = read_seed_file(SEED_FILE).to_persona()
         timeline = persona.timeline()
-        assert timeline[0].occurred_on == date(1998, 7, 19)
-        assert timeline[-1].occurred_on == date(2019, 12, 14)
+        assert timeline[0].occurred_on == date(1965, 7, 19)
+        assert timeline[-1].occurred_on == date(2022, 9, 30)
 
     def test_the_spine_is_causally_connected(self) -> None:
         """Most episodes explain themselves: they were caused by, or led to, something."""

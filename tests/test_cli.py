@@ -31,7 +31,7 @@ def test_seed_command_reports_what_it_created(
 
     out = capsys.readouterr().out
     assert "Elena Marsh" in out
-    assert "30 memories created" in out
+    assert "36 memories created" in out
 
 
 def test_reseeding_reports_a_noop(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

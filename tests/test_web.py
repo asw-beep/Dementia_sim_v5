@@ -76,7 +76,7 @@ class TestTheGallery:
 
         assert card["id"] == "elena-marsh"
         assert card["name"] == "Elena Marsh"
-        assert card["occupation"] == "Cartographer"
+        assert card["occupation"] == "Cartographer, retired"
         assert "Compass" in card["description"]
 
     def test_the_description_is_authored_not_generated(self, client: TestClient) -> None:

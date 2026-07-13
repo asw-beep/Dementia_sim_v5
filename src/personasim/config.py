@@ -57,7 +57,10 @@ class Settings(BaseSettings):
     working_memory_turns: int = Field(default=12, gt=0)
 
     # --- Retrieval ---------------------------------------------------------
-    retrieval_top_k: int = Field(default=6, gt=0)
+    # Eight, not six. Elena has a husband, two children, two parents and a brother —
+    # and at six, "who is in your family?" returned five of them and dropped Tom. The
+    # window has to fit a family, or she omits a brother while listing her relatives.
+    retrieval_top_k: int = Field(default=8, gt=0)
     retrieval_min_score: float = Field(default=0.05, ge=0.0)
     # Relative weights of the inspectable components of the ranking score.
     rank_weight_keyword: float = Field(default=1.0, ge=0.0)

@@ -187,10 +187,10 @@ class TestEngine:
         assert mid("city") in trace.memory_ids
 
     def test_a_relationship_question_finds_the_person(self, engine: RetrievalEngine) -> None:
-        trace = engine.retrieve("Who is Maya?")
+        trace = engine.retrieve("Who is Henry?")
         assert trace.intent is RetrievalIntent.RELATIONSHIP_QUERY
-        assert trace.entities == ["Maya Okonkwo"]
-        assert mid("maya") in trace.memory_ids
+        assert trace.entities == ["Henry Calloway"]
+        assert mid("henry") in trace.memory_ids
 
     def test_an_experiential_question_finds_the_episode(self, engine: RetrievalEngine) -> None:
         trace = engine.retrieve("Tell me about your wedding")
@@ -224,7 +224,7 @@ class TestEngine:
                 assert retrieved.score == pytest.approx(retrieved.components.total)
 
     def test_searched_types_are_recorded(self, engine: RetrievalEngine) -> None:
-        trace = engine.retrieve("Who is Maya?")
+        trace = engine.retrieve("Who is Henry?")
         assert trace.searched_types[0] is MemoryType.RELATIONSHIP
 
 
@@ -279,7 +279,7 @@ class TestLinkExpansion:
         assert mid("fathers_death") not in trace.memory_ids
 
     def test_a_memory_is_never_retrieved_twice(self, engine: RetrievalEngine) -> None:
-        trace = engine.retrieve("Who is Maya?")
+        trace = engine.retrieve("Who is Henry?")
         assert len(trace.memory_ids) == len(set(trace.memory_ids))
 
     def test_the_reason_names_the_relation_followed(self, engine: RetrievalEngine) -> None:
