@@ -1,25 +1,34 @@
 # Roadmap
 
-Phase 1 — Healthy Human Persona. Built waterfall: each stage is specified, built,
-and verified against its exit criteria before the next begins.
+**Status: Phase 1 complete, end to end. Phase 2 begins — Sprint 2A (CDR 0.5).**
 
-**Status: Stage 9 complete. Phase 1 is done, end to end.**
+Phase 1 was built waterfall, because a healthy persona is one thing and either
+works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
+"simulate Alzheimer's" is not a deliverable and cannot be tested. Four patients,
+each independently shippable:
 
-`persona seed` · `persona chat` · `persona trace`. The consistency suite passes: the
-same question asked several ways reaches the same memory, a fact disclosed in one
-session is recalled in the next, and nothing the model invents is ever remembered.
+| Phase | Sprint | Scope | Status |
+| ----- | ------ | ----- | ------ |
+| 1 | — | Healthy human persona | ✅ Complete |
+| 2 | 2A | **CDR 0.5 — very mild impairment** | ⬜ **Current** |
+| 2 | 2B | CDR 1 — mild | ⬜ |
+| 2 | 2C | CDR 2 — moderate | ⬜ |
+| 2 | 2D | CDR 3 — severe | ⬜ |
+| 3 | — | Assessment mode (caregiver predicts a CDR; system reveals and explains) | ⬜ |
+| 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
+| 5 | — | Longitudinal progression | ⬜ |
 
-The persona speaks, remembers what it is told, and cannot remember what it makes
-up. The loop is closed: a fact disclosed in one session is recalled in the next,
-and a hallucinated one is not recorded at all — not because it is filtered, but
-because the model's output is never offered to memory formation.
+**The scoring system is the consumer of the simulator, not the simulator.** It is
+Phase 3, and it is deliberately last of the near-term work: a simulator built
+alongside its own scorer gets tuned until the scorer is happy, which proves
+nothing. Build the patients first, validate each by hand, and only then score them.
 
-Every stage below that is marked complete passed the same gate:
-`ruff check` · `ruff format --check` · `mypy src` (strict) · `pytest`.
+Every completed item passed the same gate: `ruff check` · `ruff format --check` ·
+`mypy src` (strict) · `pytest`.
 
 ---
 
-## Progress
+## Phase 1 progress (complete)
 
 | Stage | Scope | Status | Tests |
 | ----- | ----- | ------ | ----- |
@@ -35,11 +44,111 @@ Every stage below that is marked complete passed the same gate:
 | 8 | CLI, consistency tests, documentation | ✅ Complete | 360 |
 | 9 | Web frontend with memory-trace panel | ✅ Complete | 388 |
 
-Test counts are cumulative for the whole suite at the close of that stage.
+Test counts are cumulative for the whole suite at the close of that stage. The
+suite stands at **459 passing** at `phase-1-complete`, the tag Phase 2 branches
+from and the point to return to if Phase 2 goes wrong.
 
 ---
 
-## Stages
+## Phase 2 — cognitive impairment, one CDR stage at a time
+
+### The shape of it
+
+**Severity is data, not code.** No symptom is hardcoded and none is branched on by
+name. A disease profile is a YAML file in `data/profiles/` holding parameters:
+
+```
+healthy.yaml     retrieval: 1.00   orientation: 1.00   language: 1.00   working_memory: 1.00
+cdr05.yaml       retrieval: 0.90   orientation: 0.97   language: 0.95   working_memory: 0.90
+cdr1.yaml        …
+```
+
+Those numbers are placeholders and will be tuned by driving the persona; the
+*point* is the shape. A random patient (Phase 4) then becomes nothing more than
+**load persona + load profile**, and "CDR 2" never becomes a scattering of
+`if stage == 2` through the retrieval engine.
+
+**Phase 1 is not touched.** The impairment layer wraps `retrieval/`, working memory
+and the prompt seam. No core change, no schema migration, no seed edit — that
+promise was made in Stage 2 (all three memory types in one table, discriminated by
+column) and Stage 5 (the engine lives in top-level `retrieval/` precisely because
+it is the seam Phase 2 wraps). Phase 2 is where those decisions get cashed in.
+
+**Nothing that made Phase 1 correct is relaxed to make Phase 2 expressive.**
+Formation still never sees the model's output, so an impaired persona still cannot
+remember something she invented. Impairment *withholds and hedges* memories; it
+never manufactures them.
+
+**The trace explains every failure.** A memory not recalled is not an absence in
+the log — the trace records that it was found, that the profile suppressed it, and
+why. An unexplained failure is indistinguishable from a bug, and Phase 3's report
+is built directly on this.
+
+### Sprint 2A — CDR 0.5 ⬜ (current)
+
+**Do not build "mild Alzheimer's". Build one patient who consistently behaves like
+CDR 0.5.** That is a far smaller thing, and it is the whole sprint.
+
+Six behaviours, and nothing else:
+
+1. **Recent episodic recall is slightly impaired.** "What did we talk about
+   earlier?" — sometimes recalled, sometimes missing a detail. Never an impossible
+   answer.
+2. **Older memories remain excellent.** The wedding is near-perfect.
+3. **Orientation mostly intact.** Knows the date approximately, the place, the
+   caregiver, her home. Occasionally self-corrects: *"Tuesday? … Wednesday? No —
+   Tuesday."* Not *"where am I?"* — that belongs to a later sprint.
+4. **Mild word-finding difficulty.** Occasional *"that thing… the… the kettle"*.
+   Not every sentence.
+5. **Slight repetition.** Asked about the dog twice, she may answer similarly
+   again — similarly, not verbatim.
+6. **Insight is preserved.** She knows she is becoming forgetful, that she loses
+   words, that her daughter has noticed. This is a clinical feature of CDR 0.5, not
+   a leak. **Do not remove it.**
+
+**The one success criterion:** can a caregiver tell this persona apart from the
+healthy one over 15–20 minutes, while still recognising her as the same person? If
+yes, Sprint 2A ships. Finer clinical detail comes after that is true, not before.
+
+**Acceptance criteria** — every box, or it does not ship:
+
+- ✓ Long-term identity preserved
+- ✓ Recent memory fails occasionally
+- ✓ Remote memory preserved
+- ✓ Orientation mostly correct
+- ✓ Mild lexical retrieval difficulty
+- ✓ No impossible confabulations
+- ✓ The retrieval trace explains every failure
+- ✓ The healthy architecture is untouched (and `healthy.yaml` still behaves exactly
+  as Phase 1 did — the regression suite proves it)
+
+### Sprint 2B — CDR 1 ⬜
+
+Same architecture, different profile. Working memory weaker; orientation
+occasionally wrong; conversation continuity sometimes lost; retrieval more often
+blocked. **Nothing else changes.**
+
+### Sprint 2C — CDR 2 ⬜
+
+ADLs begin to degrade — **not because a prompt says so, but because cognition now
+fails often enough that it shows.** Repeated questions, lost topics, uncertainty,
+difficulty following an explanation. These are consequences of the profile, never
+instructions in it.
+
+### Sprint 2D — CDR 3 ⬜
+
+Severe. Retrieval largely collapses, language simplifies, orientation is poor,
+recognition fails. Again: same architecture, different profile.
+
+### Not in Phase 2 — do not build these
+
+Disease progression, emotional engine, hallucination engine, stochastic failure
+beyond the profile parameters, caregiver scoring, medication, sundowning,
+wandering, agitation. Ignore them. Each is either a later phase or `docs/future.md`.
+
+---
+
+## Phase 1 stages (complete)
 
 ### Stage 0 — Project foundation ✅
 
@@ -536,25 +645,6 @@ answers.
 
 ---
 
-### Stage 9 — original plan ⬜
-
-A second adapter over the Stage 7 orchestrator, alongside the CLI. No changes to
-memory, retrieval, or storage.
-
-A conversation pane beside a live memory-trace panel: which memories fired, of
-which type, with what score components and retrieval reason, and the typed links
-behind any causal claim. This is the debugging surface Phase 2 needs most, since
-impairment simulation is the study of how retrieval degrades.
-
-Sequenced after the CLI on purpose: `persona trace` forces the trace into a
-human-readable form first, keeping it an honest data structure rather than one
-shaped around a UI component.
-
-**Exit criteria.** Adds FastAPI + uvicorn, justified in `tech_stack.md`; the
-orchestrator is untouched.
-
----
-
 ## Deviations from the original documents
 
 | Decision | Reason |
@@ -577,7 +667,8 @@ Transformers, Neo4j, Qdrant, Redis, Pinecone, PostgreSQL — remains untouched.
 These live in `tests/test_invariants.py`. Each was verified to fail when
 deliberately violated, so none is vacuous.
 
-1. No Phase 2 vocabulary anywhere in source — not even as a disabled flag.
+1. No Phase 2 vocabulary anywhere in source — not even as a disabled flag. **Sprint
+   2A must narrow this to the healthy core rather than delete it — see Open issues.**
 2. `models/` performs no I/O.
 3. `storage/` imports no reasoning layer and contains no ranking logic.
 4. No ORM row or `sqlalchemy` import escapes `storage/`.
@@ -596,7 +687,26 @@ deliberately violated, so none is vacuous.
 
 ## Open issues
 
-**None.** Every issue raised in Stages 5–8 is closed. The five that blocked Stage 8:
+**Invariant 1 bans Phase 2 vocabulary from `src/`, and Sprint 2A's first commit will
+trip it.** `tests/test_invariants.py::test_no_phase_2_concepts_in_source` fails if
+`dementia`, `confabulat`, `memory_decay`, `cognitive_decline` and friends appear
+anywhere under `src/personasim/` — deliberately, so Phase 1 could not smuggle in
+impairment as a disabled flag. It did its job; it is now in the way.
+
+It must be **narrowed, not deleted.** The invariant that still matters is that the
+*healthy core* stays clean: `models/`, `storage/`, `memory/formation/`, and the
+Phase 1 body of `retrieval/` may not learn the vocabulary of disease. The impairment
+package is exempt by construction, because it is the one place the vocabulary belongs.
+Deleting the test would give up the only mechanical guarantee that Phase 2 is a
+wrapper rather than an edit — which is the entire architectural promise of the phase.
+
+Decide this *before* the first Sprint 2A commit, not after it goes red.
+
+---
+
+## Closed issues
+
+Every issue raised in Stages 5–8 is closed. The five that blocked Stage 8:
 
 1. ~~She embroiders~~ — clamped (prompt, temperature, participant roles, and the
    un-nesting of connected memories).
@@ -714,16 +824,23 @@ found weeks later by talking to a persona and watching her deny her own dog.
 
 ## Where to pick up
 
-**Phase 1 is complete.** Stage 9 — the web frontend with a memory-trace panel — is
-the only stage left, and it is a *second adapter over work that already exists*: a
-conversation pane beside a live trace panel, showing which memories fired, of which
-type, with what score components and retrieval reason, and the typed links behind
-any causal claim. `Conversation` and `render_session` already produce everything it
-needs. **The orchestrator must not change.** Adds FastAPI + uvicorn, to be justified
-in `tech_stack.md`.
+**Sprint 2A — CDR 0.5.** Phase 1 is done and tagged `phase-1-complete`; work happens
+on the `phase-2` branch, and that tag is the way back if this goes wrong.
 
-Before starting it, read `CLAUDE.md` — the stage gate and *Who is in the room* are
-not optional, and neither is this:
+The first move is not code. It is `data/profiles/healthy.yaml` and a profile loader
+that changes nothing — because a `healthy.yaml` of all `1.0` that leaves the Phase 1
+suite green is the proof that the wrapper is a wrapper. Only once impairment can be
+*switched off to nothing* is it safe to switch it on.
+
+Then the seam: `retrieval/engine.py` is where a memory is found, scored and either
+returned or not. That is where a profile suppresses recall, and where the trace must
+say *"found, suppressed by profile, recency 0.9"* rather than quietly returning less.
+Orientation degrades at `render_now()` — the clock is injected, not stored, exactly
+so that losing the day costs no memory change. Word-finding and repetition are prompt
+seams, not memory ones.
+
+Before starting, read `CLAUDE.md` — the stage gate, *Who is in the room*, and the
+closed cast are not optional, and neither is this:
 
 **Driving beats testing, and it is not close.** Every real defect in Stages 5–8 was
 found by talking to the persona; the suite was green through all of them. She

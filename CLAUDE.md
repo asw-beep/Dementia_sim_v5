@@ -76,6 +76,26 @@ things a person simply knows about herself. They are biography, and if they are 
 authored she does not have them: she invented an English and Scottish descent for
 herself, and a Nigerian one for her wife, on nothing at all.
 
+## Phase 2 — one CDR stage at a time
+
+**Do not build "dementia". Build one patient who consistently behaves like CDR 0.5.** That is a far smaller thing, and it is the whole of Sprint 2A. CDR 1, 2 and 3 are later sprints, and each must be independently shippable — a sprint that only makes sense once the next one lands is a sprint that was not scoped.
+
+**Severity is data, not code.** Symptoms are never hardcoded and never branched on by name. A disease profile is a YAML file in `data/profiles/` (`healthy.yaml`, `cdr05.yaml`, `cdr1.yaml`, …) holding parameters — retrieval probability, orientation, language, working memory. Healthy is `1.0` across the board and must remain reachable. This is what makes a later random patient nothing more than *load persona + load profile*, and what stops "CDR 2" from becoming a pile of `if stage == 2` scattered through the engine.
+
+**Phase 1 is untouched.** The impairment layer wraps `retrieval/`, working memory and the prompt seam; it does not edit the core, the schema, or the seed. Nothing that made Phase 1 correct may be relaxed to make Phase 2 expressive — in particular, **formation still never sees the model's output**, so an impaired persona still cannot remember something she made up.
+
+**The trace must explain every failure.** A memory that was not recalled is not a gap in the log: the trace says it was found and withheld, and why. An unexplained failure is indistinguishable from a bug, and Phase 3's scoring report is built on exactly this.
+
+### What Sprint 2A is, and is not
+
+Six behaviours, and nothing else: recent episodic recall is *sometimes* impaired; remote memory stays excellent; orientation is mostly intact (a corrected "Tuesday? … Wednesday? No — Tuesday", never "where am I?"); mild word-finding trouble, occasional and not every sentence; slight repetition; and **insight is preserved** — she knows she is becoming forgetful, and that is a clinical feature of CDR 0.5, not a leak. Do not remove it.
+
+**No impossible confabulations, ever.** Impairment means a memory is *withheld or hedged*, never that a new one is invented. The cast stays closed and the closed-cast rule from *"She may improvise her Tuesday"* is not loosened by a disease profile — a forgetful woman does not acquire a sister she never had.
+
+Explicitly **not** in Sprint 2A, or in Phase 2 at all until its own sprint says so: disease progression, emotional or hallucination engines, stochastic failure beyond the profile parameters, medication, sundowning, wandering, agitation, ADL decline, and **caregiver scoring**. Scoring is a *consumer* of the simulator, not part of it — it is Phase 3, and building it early would let the simulator be tuned to its own scorer.
+
+**The one success criterion for Sprint 2A:** can a caregiver tell this persona apart from the healthy one over 15–20 minutes, while still recognising her as the same person? Everything else is detail, and detail comes after that is true.
+
 ## The stage gate — non-negotiable
 
 **Do not start the next stage while any known defect in this stage or an earlier one is open.** No "we'll fix it in Stage 9". No "known limitation" that is really a bug nobody wants to fix. A stage is finished when the system is *actually correct*, not when its checklist is ticked.
@@ -126,13 +146,15 @@ Core principle: **the LLM is not the persona**. The persona exists independently
 
 The project is built in phases, and **the Phase 1 architecture must not change in later phases**:
 
-- **Phase 1 (current)**: healthy human persona — identity, working memory, semantic/episodic/relationship memory, memory consolidation, retrieval engine, memory trace. Explicitly excludes dementia, forgetfulness, confabulation, false memories, or any cognitive decline simulation.
-- **Phase 2**: cognitive impairment layer, implemented as a wrapper around Phase 1 modules only (no core/schema changes) — degrades retrieval behavior, not the database schema.
-- **Phase 3**: multiple personas / shared relationships.
-- **Phase 4**: emotional dynamics (mood, emotional memory/salience).
-- **Phase 5**: long-term life simulation (memory aging, personality/relationship evolution).
+- **Phase 1 (done)**: healthy human persona — identity, working memory, semantic/episodic/relationship memory, memory consolidation, retrieval engine, memory trace. Tagged `phase-1-complete`; that tag is the rollback point.
+- **Phase 2 (current)**: cognitive impairment layer, implemented as a wrapper around Phase 1 modules only (no core/schema changes) — degrades retrieval behaviour, not the database schema. Four sprints, one per CDR stage: **2A → CDR 0.5**, **2B → CDR 1**, **2C → CDR 2**, **2D → CDR 3**. Each ships independently.
+- **Phase 3**: assessment mode — caregiver predicts a CDR, the system reveals the actual one and explains the gap per domain.
+- **Phase 4**: random patient generation (persona + disease profile, diagnosis hidden).
+- **Phase 5**: longitudinal progression (a patient who declines over time).
 
-Before implementing any feature, ask "does this belong to Phase 1?" — if not, it goes in `docs/future.md`, not into the Phase 1 codebase.
+Multiple personas, emotional dynamics and memory aging are no longer numbered phases — they live in `docs/future.md` until something needs them.
+
+Before implementing any feature, ask "does this belong to the sprint I am in?" — if not, it goes in `docs/future.md`, not into the codebase.
 
 ## Architecture
 
