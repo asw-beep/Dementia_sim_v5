@@ -514,7 +514,68 @@ Sprint 1 is complete when **all** of the following hold:
 
 ---
 
-## 9. Observed in the first drive (real model, cdr05.yaml)
+## 9. What the first clinical review found — and the two structural bugs behind it
+
+A reviewer drove the persona through a structured interview and scored it at
+**"CDR ≈ 0 to 0.25, not 0.5"**. Remote memory, personality, social behaviour and
+insight were right. Recent episodic memory was *nearly perfect*, word-finding
+never once occurred, and delayed recall was flawless. In their words: **the
+complaint without the deficit.**
+
+Both causes were structural. Neither was a threshold that needed nudging, and that
+distinction is the whole lesson.
+
+**1. Her breakfast was not a recent memory.** The gate exempted every semantic
+memory whose subject is `self`, to protect her authored life. But
+`conversation/improvise.py` writes breakfast, sleep and "what I have been doing
+today" as `subject: self` — and those are *precisely* what a CDR interview probes.
+The most-tested domain in the clinic was structurally immune, and she recited her
+morning perfectly every time. The line between her life and her Tuesday is not the
+subject; it is **provenance**: an authored memory's id is `uuid5(persona_id:key)`,
+derived from the seed file, and anything acquired in conversation carries a random
+`uuid4`. That is the same marker `persona seed --force` already leans on to tell
+authored from learned, and it is exactly the line the gate needed.
+
+**2. A crisp top rung aimed the impairment at questions nobody asks.** Reach used
+to end at "recalled in full", and `keyword_overlap` for a direct question — *"what
+did you have for breakfast?"* — is **1.0**. It sailed over every threshold. The gate
+only ever fired on *vague* questions, and a clinical interview asks nothing but
+direct ones. A recent memory is now never recalled crisply: the best it does is
+**hedged** — content intact, confidence not. That single rung is most of the
+difference between "healthy" and "questionable".
+
+**3. Delayed recall was free.** "Remember these three words… now, what were they?"
+is the most diagnostic question in the CDR interview, and she scored 3/3 — by
+reading them *verbatim out of the prompt*, six turns later, through the healthy
+12-turn transcript window. Holding the thread of the current exchange is preserved
+at CDR 0.5; holding it across ten minutes of other conversation is not. The window
+is now a profile parameter (`working_memory_turns: 5`), which is what turns that
+probe from free into real.
+
+**4. Word-finding was a suggestion, and the model declined it.** The fragment was
+present on schedule and produced *zero* hesitation in twenty turns — a soft note
+about a tendency, buried at the end of a long prompt. It is now imperative and
+mechanical: it says what to *do* (stop, grope, describe the thing instead of naming
+it), while still never quoting a phrase to recite.
+
+### The reviewer was right about probability, and I was half-right about determinism
+
+I argued that randomness was the wrong disease — that a coin-flip answers the same
+question differently each time, which is fluctuating confusion (CDR 2+), and that a
+non-reproducible simulator cannot be clinically validated. Both still hold. But the
+conclusion I drew — *no* stochasticity — produced exactly the failure the reviewer
+named: **"everything is either perfectly remembered or perfectly forgotten. CDR 0.5
+lives in the middle."**
+
+The synthesis is a hash, not a die. `sha256(session:memory)` gives an **encoding
+strength** in [0,1) that is fixed for a memory within a session, differs between
+memories, and differs across visits. She is unreliable the way a person is — some
+things come, some do not, a cue helps, and next week it goes differently — while a
+replayed session fails *identically*. Reproducibility survives; the middle ground
+arrives. There is no RNG in the package, so the invariant banning `random` still
+stands unamended.
+
+## 10. Observed in the first drive (real model, cdr05.yaml)
 
 The first scripted adversarial drive ran two sessions against `qwen3:14b-q4_K_M`.
 Everything above behaved as designed, and one interaction deserves a permanent note:
@@ -536,7 +597,26 @@ fragment was present on schedule, but the model's short replies gave it nowhere 
 show. That is exactly the behaviour §4a said would need a human transcript read,
 and it stays open until the structured 15–20 minute drive.
 
-## 10. Summary of the trade-offs taken
+## 11. Still open after the review
+
+**Graded delayed recall (2 of 3 words) is not reachable, and I will not fake it.**
+The reviewer asked for "40–60% chance of recalling only 2 of 3 words, improving
+after semantic cueing". Shortening the transcript window makes the probe *fail*
+(0 of 3), which satisfies "demonstrates an objective deficit" — but it cannot make
+her drop *one* word and keep two, because the words are free text in a transcript,
+not three memories with three encodings.
+
+The principled fix is real: **encode what is said in a session as episodic memory**,
+at which point the recall gate applies to it and graded, cue-responsive partial
+recall falls straight out of the mechanism that already exists. That is a change to
+memory *formation*, though — Phase 1 core — and it needs its own design. It is the
+strongest candidate for Sprint 2B, and it is recorded as an open decision in
+`docs/roadmap.md` rather than smuggled in here.
+
+Until then: 0-of-3 on delayed recall is a slightly severe reading of CDR 0.5. Say
+so out loud rather than let a reviewer discover it.
+
+## 12. Summary of the trade-offs taken
 
 | Choice | Simpler option taken | What we gave up | Why it is right |
 |---|---|---|---|

@@ -96,16 +96,15 @@ class Conversation:
         # three, without a database round trip and without a second source of truth.
         self._source = PersonaMemorySource(persona)
 
-        # The impairment layer wraps retrieval; it never replaces it. Under the
-        # healthy profile the engine is the bare Phase 1 engine — not a wrapper
-        # configured to do nothing, but no wrapper at all.
-        engine = RetrievalEngine(self._source, settings)
-        self._engine: RetrievalEngine | ImpairedRetrievalEngine = (
-            ImpairedRetrievalEngine(engine, self._profile, self._source)
-            if self._profile.gates_recall
-            else engine
-        )
-        self._working = WorkingMemory(persona.id, capacity=settings.working_memory_turns)
+        # How much of the live conversation she can hold. A capacity bound, not a
+        # forgetting model — nothing is lost from long-term memory — but it is what
+        # decides whether a delayed-recall probe means anything: three words given
+        # six turns ago sit *verbatim in the prompt* under the healthy window, and
+        # she reads them straight back. A perfect score on the single most
+        # diagnostic question in the interview, produced by a transcript rather than
+        # by memory.
+        capacity = self._profile.working_memory_turns or settings.working_memory_turns
+        self._working = WorkingMemory(persona.id, capacity=capacity)
         self._turn_number = 0
 
         # Held here, not read back from working memory. `discard()` starts a fresh
@@ -113,6 +112,16 @@ class Conversation:
         # that has ended must still be able to say which session it *was*, or the
         # session it wrote to the log becomes unfindable the moment it closes.
         self._session_id = self._working.session_id
+
+        # The impairment layer wraps retrieval; it never replaces it. Under the
+        # healthy profile the engine is the bare Phase 1 engine — not a wrapper
+        # configured to do nothing, but no wrapper at all.
+        engine = RetrievalEngine(self._source, settings)
+        self._engine: RetrievalEngine | ImpairedRetrievalEngine = (
+            ImpairedRetrievalEngine(engine, self._profile, self._source, self._session_id)
+            if self._profile.gates_recall
+            else engine
+        )
 
         self._started = False
         self._ended = False
@@ -206,7 +215,11 @@ class Conversation:
                 history=self._working.transcript(),
                 now_text=render_now_uncertain(self._profile),
                 voice_notes=voice_notes(
-                    self._profile, turn=self._turn_number, user_message=text, trace=trace
+                    self._profile,
+                    turn=self._turn_number,
+                    user_message=text,
+                    trace=trace,
+                    session_id=self._session_id,
                 ),
             )
         )

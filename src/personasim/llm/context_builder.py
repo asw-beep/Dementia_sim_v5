@@ -416,20 +416,39 @@ def _sections_in_rank_order(
 
 
 def _render_direct(item: RetrievedMemory, memory: Memory, roles: dict[str, str]) -> str:
-    """Render a matched memory — in full, or as gist alone when a recall gate says
-    the specifics are out of reach this turn.
+    """Render a matched memory at whatever reach a recall gate left it.
 
-    The gist is the authored summary with no date, no place, and no participants,
-    plus a statement that the missing parts are *missing* — otherwise the model
-    treats the absence as a gap to be helpfully filled, and fills it.
+    Three states, and the middle one is where very-mild impairment actually lives:
+
+    - **whole** — the memory as authored, with its date, place and people.
+    - **hedged** — all of it, but she does not fully trust it. This is what a
+      recent memory feels like when it *does* come: the content is right and the
+      confidence is not. Without this rung a direct question ("what did you have
+      for breakfast?") cues perfectly and is answered perfectly, and the persona
+      reads as healthy no matter what the thresholds say.
+    - **gist** — the summary with no date, no place, no participants, *and* a
+      statement that the specifics are missing. The statement is load-bearing:
+      handed a bare summary the model treats the absence as a gap to fill helpfully,
+      and fills it.
     """
-    if not item.detail_withheld:
-        return _render(memory, roles)
-    return (
-        f"{memory.summary} — you remember this much, but the particulars (exactly "
-        "when, where, who else was there) are hazy just now. Do not supply them, "
-        "and do not guess at them; if asked, say they escape you at the moment."
-    )
+    if item.detail_withheld:
+        return (
+            f"{memory.summary} — the shape of it is there, but the particulars "
+            "(exactly when, exactly where, who else was there) will not come. Say "
+            "the part you have and admit the rest escapes you. Do not reconstruct "
+            "it, and do not guess: a blank you own is true, and a plausible detail "
+            "is a lie."
+        )
+
+    rendered = _render(memory, roles)
+    if item.hedged:
+        return (
+            f"{rendered} — this is right, but it does not come to you cleanly. Say "
+            "it as someone half-sure of her own recollection: reach for it, allow "
+            "yourself a moment, hedge it ('I think', 'as far as I recall'). Do not "
+            "recite it as though it were on a card in front of you."
+        )
+    return rendered
 
 
 def _render(memory: Memory, roles: dict[str, str]) -> str:

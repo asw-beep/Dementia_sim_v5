@@ -25,6 +25,7 @@ from personasim.impairment import (
     load_profile,
 )
 from personasim.impairment.profile import RecallGate
+from personasim.impairment.recall import _encoding
 from personasim.impairment.voice import render_now_uncertain, voice_notes
 from personasim.llm.base import ChatMessage
 from personasim.llm.context_builder import build_memory_context
@@ -41,6 +42,7 @@ from personasim.models.trace import (
     RetrievedMemory,
     ScoreComponents,
 )
+from personasim.persona.seed import memory_id_for
 from personasim.retrieval.source import PersonaMemorySource
 from personasim.storage import Database, MemoryRepository, PersonaRepository
 
@@ -48,8 +50,9 @@ PROFILES = Path(__file__).resolve().parents[1] / "data" / "profiles"
 
 CDR05 = CognitiveProfile(
     name="cdr05-test",
-    recall=RecallGate(recent_window_days=90, cue_threshold=0.55, detail_threshold=0.80),
+    recall=RecallGate(recent_window_days=90, withhold_below=0.45, gist_below=0.85, cue_weight=0.55),
     insight=True,
+    working_memory_turns=5,
 )
 
 NOW = datetime(2026, 7, 14, 17, 0, tzinfo=UTC)
@@ -96,6 +99,45 @@ def recent_episode(days_ago: int = 3) -> EpisodicMemory:
     )
 
 
+def session_encoding(memory_id: str, low: float, high: float) -> str:
+    """A session in which this memory was laid down that well.
+
+    Encoding is a hash of (session, memory) rather than a die roll, so a test that
+    wants a poorly-encoded memory *searches for the session* instead of seeding an
+    RNG. That the search always succeeds is itself the point: across visits, the
+    same memory is sometimes reachable and sometimes not.
+    """
+    for index in range(100_000):
+        session = f"session-{index}"
+        if low <= _encoding(session, memory_id) < high:
+            return session
+    raise AssertionError("no session produced that encoding")
+
+
+def improvised_breakfast() -> SemanticMemory:
+    """What `conversation/improvise.py` writes: subject `self`, a random uuid4.
+
+    The memory that broke the first CDR 0.5 drive. Subject `self` made it look like
+    her authored life; it is nothing of the kind, and a clinical interview asks
+    about it constantly.
+    """
+    return SemanticMemory(
+        summary="For breakfast I had porridge, a boiled egg, black tea",
+        keywords=["breakfast", "morning", "eat", "ate", "food", "meal"],
+        subject="self",
+        attribute="breakfast",
+        value="porridge, a boiled egg, black tea",
+        importance=0.15,
+        confidence=0.5,
+        created_at=NOW - timedelta(hours=4),
+    )
+
+
+def authored(memory: Memory) -> Memory:
+    """The same memory, as the seed file would have authored it: a uuid5 id."""
+    return memory.model_copy(update={"id": memory_id_for("elena-marsh", "some_key")})
+
+
 class TestProfiles:
     def test_the_shipped_profiles_load(self) -> None:
         healthy = load_profile(PROFILES / "healthy.yaml")
@@ -106,11 +148,12 @@ class TestProfiles:
         assert cdr05.gates_recall
         assert cdr05.insight
         assert cdr05.orientation.day_and_date == "uncertain"
-        assert cdr05.speech.word_finding_every_n_turns > 0
+        assert cdr05.speech.word_finding_probability > 0
+        assert cdr05.working_memory_turns is not None
 
     def test_thresholds_must_be_ordered(self) -> None:
-        with pytest.raises(ValueError, match="detail_threshold"):
-            RecallGate(recent_window_days=90, cue_threshold=0.8, detail_threshold=0.5)
+        with pytest.raises(ValueError, match="gist_below"):
+            RecallGate(recent_window_days=90, withhold_below=0.8, gist_below=0.5)
 
     def test_a_missing_file_is_a_profile_error(self, tmp_path: Path) -> None:
         with pytest.raises(ProfileError, match="cannot read"):
@@ -130,7 +173,12 @@ class TestProfiles:
 
 
 class TestRecallGate:
-    """The rule, one branch at a time."""
+    """The rule, one branch at a time.
+
+    Encoding is a hash of (session, memory), so a test that wants a poorly-laid-down
+    memory picks the *session* that laid it down poorly, via `session_encoding`.
+    Nothing here seeds an RNG, because there is no RNG.
+    """
 
     def test_healthy_returns_the_very_same_trace(self) -> None:
         memory = recent_episode()
@@ -138,92 +186,172 @@ class TestRecallGate:
 
         assert apply_recall_gate(trace, HEALTHY, _Source(memory), now=NOW) is trace
 
-    def test_a_remote_memory_survives_any_cue(self) -> None:
+    def test_a_remote_memory_survives_any_cue_and_any_encoding(self) -> None:
         wedding = EpisodicMemory(
             summary="Married Maya on a rainy afternoon in Vermont",
             keywords=["wedding", "maya"],
             occurred_on=date(2014, 9, 6),
         )
         trace = trace_of(retrieved(wedding, cue=0.0))
+        worst = session_encoding(wedding.id, 0.0, 0.05)
 
-        gated = apply_recall_gate(trace, CDR05, _Source(wedding), now=NOW)
+        gated = apply_recall_gate(trace, CDR05, _Source(wedding), session_id=worst, now=NOW)
 
         assert gated.retrieved == trace.retrieved
         assert not gated.withheld
 
-    def test_a_recent_weakly_cued_memory_is_withheld_with_its_arithmetic(self) -> None:
+    def test_a_recent_poorly_encoded_memory_is_withheld_with_its_arithmetic(self) -> None:
         memory = recent_episode(days_ago=3)
+        session = session_encoding(memory.id, 0.0, 0.1)
         trace = trace_of(retrieved(memory, cue=0.25))
 
-        gated = apply_recall_gate(trace, CDR05, _Source(memory), now=NOW)
+        gated = apply_recall_gate(trace, CDR05, _Source(memory), session_id=session, now=NOW)
 
         assert gated.retrieved == []
         assert len(gated.withheld) == 1
         gone = gated.withheld[0]
         assert gone.memory_id == memory.id
-        assert gone.cue_strength == 0.25
         assert gone.age_days == 3
-        assert "weakly cued" in gone.reason
-        assert "kept out of reach" in gated.reason
+        assert "poorly laid down" in gone.reason
+        assert "out of reach" in gated.reason
 
     def test_a_stronger_cue_brings_the_same_memory_back(self) -> None:
-        """Gentle cueing is not simulated; it is what the mechanism does."""
+        """Gentle cueing is not simulated; it is what the mechanism does. Same
+        memory, same session, same encoding — only the question got sharper."""
         memory = recent_episode()
+        session = session_encoding(memory.id, 0.35, 0.42)
 
-        weak = apply_recall_gate(
-            trace_of(retrieved(memory, cue=0.25)), CDR05, _Source(memory), now=NOW
+        vague = apply_recall_gate(
+            trace_of(retrieved(memory, cue=0.0)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
-        strong = apply_recall_gate(
-            trace_of(retrieved(memory, cue=0.85)), CDR05, _Source(memory), now=NOW
+        squarely = apply_recall_gate(
+            trace_of(retrieved(memory, cue=1.0)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
 
-        assert weak.retrieved == []
-        assert [item.memory_id for item in strong.retrieved] == [memory.id]
-        assert not strong.retrieved[0].detail_withheld
+        assert vague.retrieved == []
+        assert [item.memory_id for item in squarely.retrieved] == [memory.id]
+
+    def test_a_recent_memory_is_never_recalled_crisply_however_hard_it_is_cued(self) -> None:
+        """The correction the first clinical review forced.
+
+        A direct question — "what did you have for breakfast?" — cues at 1.0, and
+        with a crisp top rung it sailed over every threshold and was answered
+        perfectly, every time. A clinical interview asks nothing *but* direct
+        questions, so the impairment was aimed at exactly the questions nobody asks.
+        The best a recent memory now does is hedged.
+        """
+        memory = recent_episode()
+        best = session_encoding(memory.id, 0.95, 1.0)
+
+        gated = apply_recall_gate(
+            trace_of(retrieved(memory, cue=1.0)),
+            CDR05,
+            _Source(memory),
+            session_id=best,
+            now=NOW,
+        )
+
+        [item] = gated.retrieved
+        assert item.hedged
+        assert not item.detail_withheld
 
     def test_the_middle_band_keeps_the_gist_and_loses_the_specifics(self) -> None:
         memory = recent_episode()
-        trace = trace_of(retrieved(memory, cue=0.65))
+        session = session_encoding(memory.id, 0.5, 0.55)
 
-        gated = apply_recall_gate(trace, CDR05, _Source(memory), now=NOW)
-
-        assert len(gated.retrieved) == 1
-        assert gated.retrieved[0].detail_withheld
-        assert not gated.withheld
-
-    def test_an_authored_self_fact_is_never_recent_whatever_its_created_at(self) -> None:
-        """The freshly-seeded-database case: `created_at` is the seed time, and a
-        persona seeded five minutes ago must not forget where she lives."""
-        city = SemanticMemory(
-            summary="Lives in Boston",
-            keywords=["boston", "home"],
-            subject="self",
-            attribute="city",
-            value="Boston",
-            created_at=NOW - timedelta(minutes=5),
+        gated = apply_recall_gate(
+            trace_of(retrieved(memory, cue=0.3)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
-        trace = trace_of(retrieved(city, cue=0.0))
 
-        gated = apply_recall_gate(trace, CDR05, _Source(city), now=NOW)
-
-        assert gated.retrieved == trace.retrieved
+        [item] = gated.retrieved
+        assert item.detail_withheld
+        assert item.hedged
         assert not gated.withheld
+
+    def test_her_improvised_breakfast_is_a_recent_memory(self) -> None:
+        """The bug the first drive found, pinned.
+
+        `subject: self` made an improvised everyday detail look like her authored
+        life, so the gate exempted it — and breakfast, sleep and "what have you been
+        doing today?" are the most-probed recent memories in a CDR interview. She
+        recalled her morning perfectly every single time. Provenance, not subject,
+        is what separates her life from her Tuesday.
+        """
+        breakfast = improvised_breakfast()
+        session = session_encoding(breakfast.id, 0.0, 0.1)
+
+        gated = apply_recall_gate(
+            trace_of(retrieved(breakfast, cue=0.4)),
+            CDR05,
+            _Source(breakfast),
+            session_id=session,
+            now=NOW,
+        )
+
+        assert gated.retrieved == []
+        assert [gone.memory_id for gone in gated.withheld] == [breakfast.id]
+
+    def test_an_authored_self_fact_is_never_gated_whatever_its_created_at(self) -> None:
+        """The other side of that coin, and the freshly-seeded-database case: a
+        seed's `created_at` is the seed time, and a persona seeded five minutes ago
+        must not have forgotten where she lives."""
+        city = authored(
+            SemanticMemory(
+                summary="Lives in Boston",
+                keywords=["boston", "home"],
+                subject="self",
+                attribute="city",
+                value="Boston",
+                created_at=NOW - timedelta(minutes=5),
+            )
+        )
+        worst = session_encoding(city.id, 0.0, 0.05)
+
+        gated = apply_recall_gate(
+            trace_of(retrieved(city, cue=0.0)),
+            CDR05,
+            _Source(city),
+            session_id=worst,
+            now=NOW,
+        )
+
+        assert gated.retrieved and not gated.withheld
 
     def test_a_relationship_is_never_gated(self) -> None:
         """Failure to recognise close family is a later severity, and it is not a
         parameter here — it is structurally out of the gate's reach."""
-        spouse = RelationshipMemory(
-            summary="Maya is my spouse",
-            keywords=["maya", "spouse"],
-            person_name="Maya",
-            relation="spouse",
-            created_at=NOW - timedelta(days=1),
+        spouse = authored(
+            RelationshipMemory(
+                summary="Maya is my spouse",
+                keywords=["maya", "spouse"],
+                person_name="Maya",
+                relation="spouse",
+                created_at=NOW - timedelta(days=1),
+            )
         )
-        trace = trace_of(retrieved(spouse, cue=0.0))
+        worst = session_encoding(spouse.id, 0.0, 0.05)
 
-        gated = apply_recall_gate(trace, CDR05, _Source(spouse), now=NOW)
+        gated = apply_recall_gate(
+            trace_of(retrieved(spouse, cue=0.0)),
+            CDR05,
+            _Source(spouse),
+            session_id=worst,
+            now=NOW,
+        )
 
-        assert gated.retrieved == trace.retrieved
+        assert gated.retrieved and not gated.withheld
 
     def test_a_disclosed_fact_is_gateable_by_when_it_was_heard(self) -> None:
         chicago = SemanticMemory(
@@ -234,9 +362,15 @@ class TestRecallGate:
             value="Chicago",
             created_at=NOW - timedelta(days=2),
         )
-        trace = trace_of(retrieved(chicago, cue=0.3))
+        session = session_encoding(chicago.id, 0.0, 0.1)
 
-        gated = apply_recall_gate(trace, CDR05, _Source(chicago), now=NOW)
+        gated = apply_recall_gate(
+            trace_of(retrieved(chicago, cue=0.3)),
+            CDR05,
+            _Source(chicago),
+            session_id=session,
+            now=NOW,
+        )
 
         assert gated.retrieved == []
         assert [gone.memory_id for gone in gated.withheld] == [chicago.id]
@@ -251,12 +385,15 @@ class TestRecallGate:
             keywords=["father", "stroke"],
             occurred_on=date(2018, 4, 2),
         )
+        session = session_encoding(parent.id, 0.0, 0.1)
         trace = trace_of(
             retrieved(parent, cue=0.25),
             retrieved(explanation, cue=0.0, linked_from=parent.id),
         )
 
-        gated = apply_recall_gate(trace, CDR05, _Source(parent, explanation), now=NOW)
+        gated = apply_recall_gate(
+            trace, CDR05, _Source(parent, explanation), session_id=session, now=NOW
+        )
 
         assert gated.retrieved == []
         assert len(gated.withheld) == 2
@@ -269,25 +406,109 @@ class TestRecallGate:
             keywords=["father", "stroke"],
             occurred_on=date(2018, 4, 2),
         )
+        session = session_encoding(parent.id, 0.9, 1.0)
         trace = trace_of(
-            retrieved(parent, cue=0.9),
+            retrieved(parent, cue=1.0),
             retrieved(explanation, cue=0.0, linked_from=parent.id),
         )
 
-        gated = apply_recall_gate(trace, CDR05, _Source(parent, explanation), now=NOW)
+        gated = apply_recall_gate(
+            trace, CDR05, _Source(parent, explanation), session_id=session, now=NOW
+        )
 
         assert [item.memory_id for item in gated.retrieved] == [parent.id, explanation.id]
 
-    def test_the_same_question_fails_the_same_way_twice(self) -> None:
-        """Deterministic, not stochastic: reliably bad at the same things."""
+    def test_a_session_replays_identically(self) -> None:
+        """Hashed, not rolled. She is unreliable the way a person is — but a
+        replayed session fails exactly as it failed the first time, which is what a
+        clinical validation needs and a `random.random()` could never give."""
         memory = recent_episode()
         trace = trace_of(retrieved(memory, cue=0.25))
         source = _Source(memory)
 
-        first = apply_recall_gate(trace, CDR05, source, now=NOW)
-        second = apply_recall_gate(trace, CDR05, source, now=NOW)
+        first = apply_recall_gate(trace, CDR05, source, session_id="visit-1", now=NOW)
+        again = apply_recall_gate(trace, CDR05, source, session_id="visit-1", now=NOW)
 
-        assert first == second
+        assert first == again
+
+    def test_but_a_later_visit_may_go_differently(self) -> None:
+        """Which is the whole clinical texture: some days it comes, some days it
+        does not, and a cue helps."""
+        memory = recent_episode()
+        trace = trace_of(retrieved(memory, cue=0.3))
+        source = _Source(memory)
+
+        fates = {
+            bool(apply_recall_gate(trace, CDR05, source, session_id=f"visit-{n}", now=NOW).withheld)
+            for n in range(40)
+        }
+
+        assert fates == {True, False}
+
+
+class TestClinicalRates:
+    """The behaviour a reviewer measures, rather than the branch a coder reads.
+
+    Rates are asserted over many memories in one session — which is exactly how a
+    clinician sees them: not "will *this* memory fail" but "how often does she".
+    """
+
+    def _fates(self, cue: float, count: int = 400) -> dict[str, int]:
+        tally = {"withheld": 0, "gist": 0, "hedged": 0}
+        for index in range(count):
+            memory = recent_episode()
+            gated = apply_recall_gate(
+                trace_of(retrieved(memory, cue=cue)),
+                CDR05,
+                _Source(memory),
+                session_id=f"s{index}",
+                now=NOW,
+            )
+            if gated.withheld:
+                tally["withheld"] += 1
+            elif gated.retrieved[0].detail_withheld:
+                tally["gist"] += 1
+            else:
+                tally["hedged"] += 1
+        return tally
+
+    def test_a_direct_question_loses_a_detail_about_a_quarter_of_the_time(self) -> None:
+        """The reviewer's target: 20-30% of recent events lose a detail, and none
+        is answered crisply."""
+        tally = self._fates(cue=1.0)
+
+        assert tally["withheld"] == 0  # a direct question is always *answered*
+        assert 0.20 <= tally["gist"] / 400 <= 0.35
+        assert tally["hedged"] > 0
+
+    def test_a_vague_question_often_draws_a_blank(self) -> None:
+        tally = self._fates(cue=0.0)
+
+        assert 0.35 <= tally["withheld"] / 400 <= 0.55
+        assert tally["gist"] > 0
+
+    def test_remote_memory_stays_above_95_percent(self) -> None:
+        """>95% accuracy on autobiography, per the acceptance criteria. It is 100%,
+        because remote memory is not gated at all — a structural guarantee, not a
+        rate that could drift."""
+        intact = 0
+        for index in range(200):
+            wedding = EpisodicMemory(
+                summary="Married Maya in Vermont",
+                keywords=["wedding"],
+                occurred_on=date(2014, 9, 6),
+            )
+            gated = apply_recall_gate(
+                trace_of(retrieved(wedding, cue=0.0)),
+                CDR05,
+                _Source(wedding),
+                session_id=f"s{index}",
+                now=NOW,
+            )
+            if gated.retrieved and not gated.retrieved[0].hedged and not gated.withheld:
+                intact += 1
+
+        assert intact == 200
 
 
 class TestVoice:
@@ -296,18 +517,26 @@ class TestVoice:
         assert voice_notes(HEALTHY, turn=4, user_message="a, b, c, d, and e?", trace=gone) == ""
         assert render_now_uncertain(HEALTHY) is None
 
-    def test_word_finding_fires_on_the_profiles_cadence_and_only_then(self) -> None:
+    def test_word_finding_fires_on_some_turns_and_not_others(self) -> None:
+        """Not a metronome. Every 4th turn read as one, and — worse — the old soft
+        note produced *zero* hesitation in twenty turns of real conversation, which
+        is why the fragment is now imperative rather than suggestive."""
         profile = load_profile(PROFILES / "cdr05.yaml")
-        cadence = profile.speech.word_finding_every_n_turns
         empty = trace_of()
 
-        on = voice_notes(profile, turn=cadence, user_message="hello", trace=empty)
-        off = voice_notes(profile, turn=cadence + 1, user_message="hello", trace=empty)
+        fired = [
+            "will not come to you"
+            in voice_notes(
+                profile, turn=turn, user_message="how are you?", trace=empty, session_id="s"
+            )
+            for turn in range(60)
+        ]
 
-        assert "refuses to come" in on
-        assert "refuses to come" not in off
+        assert any(fired)
+        assert not all(fired)
+        assert sum(fired) / len(fired) < 0.35  # intermittent, never aphasic
 
-    def test_a_long_question_triggers_the_attention_note(self) -> None:
+    def test_a_long_question_can_overrun_her_but_a_short_one_never_does(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
         empty = trace_of()
         long_message = (
@@ -315,16 +544,33 @@ class TestVoice:
             "and whether your father made a speech?"
         )
 
-        fired = voice_notes(profile, turn=1, user_message=long_message, trace=empty)
-        quiet = voice_notes(profile, turn=1, user_message="How are you?", trace=empty)
+        overrun = [
+            "got away from you"
+            in voice_notes(
+                profile, turn=turn, user_message=long_message, trace=empty, session_id="s"
+            )
+            for turn in range(40)
+        ]
+        short = [
+            voice_notes(
+                profile, turn=turn, user_message="How are you?", trace=empty, session_id="s"
+            )
+            for turn in range(40)
+        ]
 
-        assert "several parts" in fired
-        assert quiet == ""
+        assert any(overrun)  # sometimes she loses the thread
+        assert not all(overrun)  # usually she copes — this is CDR 0.5, not CDR 2
+        assert all("got away from you" not in note for note in short)
 
     def test_insight_fires_exactly_when_a_memory_was_withheld(self) -> None:
         memory = recent_episode()
+        session = session_encoding(memory.id, 0.0, 0.1)
         withheld = apply_recall_gate(
-            trace_of(retrieved(memory, cue=0.25)), CDR05, _Source(memory), now=NOW
+            trace_of(retrieved(memory, cue=0.0)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
 
         spoken = voice_notes(CDR05, turn=1, user_message="hello", trace=withheld)
@@ -341,6 +587,19 @@ class TestVoice:
         assert "July 2026" in text
         assert "Tuesday" in text  # the real day is in the text; her hold on it is not
         assert "could not swear" in text
+
+    def test_a_session_replays_its_speech_identically(self) -> None:
+        profile = load_profile(PROFILES / "cdr05.yaml")
+        empty = trace_of()
+
+        first = voice_notes(
+            profile, turn=7, user_message="and how have you been?", trace=empty, session_id="v1"
+        )
+        again = voice_notes(
+            profile, turn=7, user_message="and how have you been?", trace=empty, session_id="v1"
+        )
+
+        assert first == again
 
 
 class TestContextRendering:
@@ -359,12 +618,30 @@ class TestContextRendering:
         assert "2014-09-06" not in gist_context
         assert "Vermont" not in gist_context.replace(wedding.summary, "")
         assert wedding.summary in gist_context
-        assert "hazy" in gist_context
+        assert "will not come" in gist_context
+
+    def test_a_hedged_memory_keeps_its_content_but_loses_its_confidence(
+        self, persona: Persona
+    ) -> None:
+        """The rung the first review was missing. She says the right thing; she
+        just does not say it like a woman reading off a card."""
+        source = PersonaMemorySource(persona)
+        wedding = persona.memories[0]
+
+        hedged = build_memory_context(trace_of(retrieved(wedding, cue=0.9, hedged=True)), source)
+
+        assert "Vermont" in hedged  # the content is all there
+        assert "half-sure" in hedged  # the certainty is not
 
     def test_the_trace_renderer_shows_what_was_withheld(self) -> None:
         memory = recent_episode()
+        session = session_encoding(memory.id, 0.0, 0.1)
         gated = apply_recall_gate(
-            trace_of(retrieved(memory, cue=0.25)), CDR05, _Source(memory), now=NOW
+            trace_of(retrieved(memory, cue=0.0)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
 
         rendered = render_trace(gated)
@@ -374,8 +651,13 @@ class TestContextRendering:
 
     def test_a_trace_round_trips_with_its_withheld_memories(self) -> None:
         memory = recent_episode()
+        session = session_encoding(memory.id, 0.0, 0.1)
         gated = apply_recall_gate(
-            trace_of(retrieved(memory, cue=0.25)), CDR05, _Source(memory), now=NOW
+            trace_of(retrieved(memory, cue=0.0)),
+            CDR05,
+            _Source(memory),
+            session_id=session,
+            now=NOW,
         )
 
         revived = MemoryTrace.model_validate(gated.model_dump(mode="json"))
@@ -442,15 +724,29 @@ class TestImpairedConversation:
             MemoryRepository(db).add(saved.id, lunch)
         before = len(saved.memories)
 
-        llm = ScriptedLLM("It's slipped my mind, I'm afraid.")
-        with impaired(saved, llm, database) as chat:
-            reply = chat.send("did you eat anything nice yesterday?")
+        # Each session lays the memory down differently, so the question is asked
+        # across many of them: in every session where the gate takes her lunch out
+        # of reach, nothing may be invented in its place.
+        blanked = 0
+        for _ in range(25):
+            llm = ScriptedLLM("It's slipped my mind, I'm afraid.")
+            with impaired(saved, llm, database) as chat:
+                reply = chat.send("did you eat anything nice yesterday?")
 
-        assert [gone.memory_id for gone in reply.trace.withheld] == [lunch.id]
-        assert reply.trace.is_empty  # the Phase 1 guard would have improvised here
-        assert not reply.trace.memory_is_silent  # the new guard is why it does not
-        assert reply.formed == []
-        assert len(saved.memories) == before
+            assert reply.formed == []  # never, in any session
+            assert len(saved.memories) == before
+
+            if reply.trace.withheld:
+                assert [g.memory_id for g in reply.trace.withheld] == [lunch.id]
+                if reply.trace.is_empty:
+                    # The Phase 1 guard would have improvised here — the trace *is*
+                    # empty. `memory_is_silent` is why it does not: found-and-withheld
+                    # is not silence, and a fabricated lunch would have been written
+                    # over a real one, permanently.
+                    assert not reply.trace.memory_is_silent
+                    blanked += 1
+
+        assert blanked, "the gate never withheld the lunch — the landmine went untested"
 
     def test_a_withheld_memory_is_not_spoken_but_insight_is(
         self, saved: Persona, database: Database
@@ -464,39 +760,99 @@ class TestImpairedConversation:
         with database.session() as db:
             MemoryRepository(db).add(saved.id, lunch)
 
-        llm = ScriptedLLM("It's gone, I'm afraid.")
-        with impaired(saved, llm, database) as chat:
-            chat.send("did you eat anything nice yesterday?")
+        # Which sessions withhold it depends on how well it was laid down in each,
+        # so this asks across several and checks the ones that did.
+        checked = 0
+        for _ in range(25):
+            llm = ScriptedLLM("It's gone, I'm afraid.")
+            with impaired(saved, llm, database) as chat:
+                reply = chat.send("did you eat anything nice yesterday?")
 
-        system = llm.prompts[0][0].content
-        assert lunch.summary not in system  # withheld means withheld
-        assert "slip away" in system  # and she may say she has noticed
+            system = llm.prompts[0][0].content
+            if reply.trace.withheld:
+                assert lunch.summary not in system  # withheld means withheld
+                assert "slip away" in system  # and she says she has noticed
+                checked += 1
 
-    def test_disclose_forget_then_recall_under_a_stronger_cue(
+        assert checked, "the gate never withheld the lunch"
+
+    def test_a_squarely_cued_disclosure_always_comes_back_but_never_crisply(
         self, saved: Persona, database: Database
     ) -> None:
-        """The whole clinical thesis in one flow: a fact disclosed is formed even
-        under impairment, fails to come to mind on a vague cue, and comes back
-        when the question reaches for it by name."""
-        llm = ScriptedLLM("How lovely.", "Home? I couldn't say.", "You live in Chicago.")
+        """Two guarantees that hold whatever the encoding, and they are the shape of
+        very mild impairment.
+
+        A question that aims straight at a memory always reaches it — `cue_weight`
+        alone clears `withhold_below`, so gentle cueing is not a coin toss. And a
+        recent memory is *never* recalled crisply, however squarely it was asked
+        for: that is the rung whose absence made the first drive read as healthy.
+        """
+        llm = ScriptedLLM("How lovely.", "Chicago, I think.")
 
         with impaired(saved, llm, database) as chat:
-            first = chat.send("I live in Chicago.")
-            assert len(first.formed) == 1  # formation is not impaired
+            told = chat.send("I live in Chicago.")
+            assert len(told.formed) == 1  # formation is not impaired
 
-            vague = chat.send("how are things at home these days?")
-            # Her own authored "Lives in Boston" may surface — it is never gated.
-            # The recently heard fact is the one that fails to come to mind.
-            assert not any("Chicago" in item.summary for item in vague.trace.retrieved)
-            assert any("Chicago" in gone.summary for gone in vague.trace.withheld)
+            asked = chat.send("where do I live?")
 
-            specific = chat.send("where do I live?")
-            assert any("Chicago" in item.summary for item in specific.trace.retrieved)
-            assert not specific.trace.withheld
+        [chicago] = [m for m in asked.trace.retrieved if "Chicago" in m.summary]
+        assert not asked.trace.withheld  # a square cue always reaches it
+        assert chicago.hedged  # but she does not trust it the way she trusts her own name
 
         with database.session() as db:
             stored = MemoryRepository(db).list_memories(saved.id)
         assert any("Chicago" in memory.summary for memory in stored)
+
+    def test_her_improvised_breakfast_is_gateable_end_to_end(
+        self, saved: Persona, database: Database
+    ) -> None:
+        """The bug the review found, at the level it was found: she is asked about
+        her morning, and her morning is a recent memory like any other — hedged at
+        best, sometimes only an outline. Never recited."""
+        llm = ScriptedLLM("Porridge, I think. And tea.", "Porridge... and tea, I believe.")
+
+        with impaired(saved, llm, database) as chat:
+            first = chat.send("What did you have for breakfast this morning?")
+            assert len(first.formed) == 1  # improvised once, written down
+
+            again = chat.send("What did you have for breakfast this morning?")
+
+        # Formed as an improvised memory, and gateable from the very next turn: it
+        # is either hedged, in outline, or out of reach — never crisply recited.
+        recalled = [m for m in again.trace.retrieved if m.memory_id == first.formed[0].id]
+        if recalled:
+            assert recalled[0].hedged
+        else:
+            assert any(g.memory_id == first.formed[0].id for g in again.trace.withheld)
+
+    def test_a_short_working_memory_makes_delayed_recall_mean_something(
+        self, saved: Persona, database: Database
+    ) -> None:
+        """Three words, then ten minutes of other conversation.
+
+        Under the healthy 12-turn window the words sat *verbatim in the prompt* six
+        turns later and she read them straight back — a perfect score on the most
+        diagnostic question in the CDR interview, produced by a transcript rather
+        than by memory. The window is what makes the probe real.
+        """
+        llm = ScriptedLLM("I'll remember them.")
+        with impaired(saved, llm, database) as chat:
+            chat.send("Remember these three words: apple, train, blue.")
+            for filler in (
+                "Tell me about your wedding.",
+                "And your father?",
+                "Your brother?",
+                "What do you make of the weather?",
+                "Do you still draw maps?",
+            ):
+                chat.send(filler)
+
+            probe = chat.send("What were those three words?")
+
+        prompt = llm.prompts[-1]
+        transcript = " ".join(message.content for message in prompt)
+        assert "apple" not in transcript.lower()  # genuinely gone, not merely hedged
+        assert probe.formed == []  # and nothing was invented to fill the gap
 
     def test_her_own_life_is_reachable_under_the_profile(
         self, saved: Persona, database: Database

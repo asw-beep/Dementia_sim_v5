@@ -695,12 +695,29 @@ deliberately violated, so none is vacuous.
 
 ## Open issues
 
-**Sprint 2A's numbers are untuned, and the hand-drive is not finished.** The
-thresholds in `data/profiles/cdr05.yaml` (window 90d, cue 0.55, detail 0.80,
-word-finding every 4th turn) are starting values. The sprint's headline criterion —
-a caregiver can tell her from the healthy persona in 15–20 minutes while still
-recognising her — is judged on a real adversarial transcript, and only tuning
-against such transcripts closes it.
+**Graded delayed recall — 2 of 3 words, not 0 of 3 — needs session memories.**
+The first clinical review scored the persona at "CDR ≈ 0–0.25, not 0.5", and the
+single most diagnostic probe was the three-word delayed recall: she scored 3/3 by
+reading the words *verbatim out of the prompt* six turns later, through the healthy
+transcript window. Shortening that window (`working_memory_turns: 5`) makes the
+probe fail honestly — but it fails **completely**, and a CDR 0.5 patient drops one
+word and keeps two.
+
+Partial recall is not reachable while the words are free text in a transcript: they
+are one blob, not three memories with three encodings. The principled fix is to
+**encode what is said in a session as episodic memory**, at which point the recall
+gate already in place applies to each item and graded, cue-responsive partial recall
+falls out of the mechanism rather than being simulated on top of it. That is a
+change to memory *formation* — Phase 1 core — so it needs its own design and its own
+sprint. **It is the strongest candidate for Sprint 2B**, ahead of CDR 1.
+
+Until then, 0-of-3 is a slightly severe reading of CDR 0.5, and it is stated rather
+than hidden.
+
+**The drive is not finished, and the numbers are still starting values.** The
+headline criterion — a caregiver tells her from the healthy persona in 15–20 minutes
+while still recognising her as the same woman — is judged on a transcript, and the
+second review has not happened. `data/profiles/cdr05.yaml` is data; expect to tune it.
 
 ---
 

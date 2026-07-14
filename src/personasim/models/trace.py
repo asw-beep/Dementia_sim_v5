@@ -64,6 +64,11 @@ class RetrievedMemory(BaseModel):
     # the specifics (date, place, participants) are out of reach this turn.
     detail_withheld: bool = False
 
+    # Set by a recall gate: the memory came back, but not with confidence. She
+    # states it as someone who half-trusts her own recollection, because a recent
+    # memory under impairment is never crisp however squarely it was asked for.
+    hedged: bool = False
+
     @property
     def was_expanded(self) -> bool:
         return self.linked_from is not None

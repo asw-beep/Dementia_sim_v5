@@ -20,11 +20,24 @@ class ImpairedRetrievalEngine:
     """A `RetrievalEngine` whose recall of recent memory is gated by a profile."""
 
     def __init__(
-        self, inner: RetrievalEngine, profile: CognitiveProfile, source: MemorySource
+        self,
+        inner: RetrievalEngine,
+        profile: CognitiveProfile,
+        source: MemorySource,
+        session_id: str = "",
     ) -> None:
         self._inner = inner
         self._profile = profile
         self._source = source
+        # How well a memory was laid down is hashed from (session, memory), so it
+        # holds steady through one visit and differs across visits — she is
+        # unreliable the way a person is, not the way a coin is.
+        self._session_id = session_id
 
     def retrieve(self, query: str) -> MemoryTrace:
-        return apply_recall_gate(self._inner.retrieve(query), self._profile, self._source)
+        return apply_recall_gate(
+            self._inner.retrieve(query),
+            self._profile,
+            self._source,
+            session_id=self._session_id,
+        )

@@ -34,27 +34,50 @@ class ProfileError(Exception):
 class RecallGate(BaseModel):
     """How recent memory is gated. Consumed by `impairment.recall`.
 
-    `cue_threshold` and `detail_threshold` are compared against the trace's
-    `keyword_overlap` score component — the fraction of the question's keywords the
-    memory carries, times the keyword rank weight (1.0 by default). A recent memory
-    below the cue threshold is withheld; between the thresholds its gist survives
-    but its specifics do not; at or above the detail threshold it is recalled in
-    full. A window of zero days makes nothing recent, which is what healthy means.
+    A recent memory's *reach* is `encoding + cue_weight * cue`:
+
+    - **encoding** — how well this memory was laid down, in [0, 1). Not a die roll:
+      a hash of (session, memory), so it is fixed for a given memory within a
+      session, varies between memories, and varies across visits. Reproducible by
+      construction — replay a session and it fails identically — which is what a
+      clinical validation needs and what a `random.random()` could never give.
+    - **cue** — `keyword_overlap`: how squarely the question reached for it.
+
+    Reach then falls on a ladder, and the top rung matters as much as the bottom:
+
+        reach < withhold_below   → not recalled at all
+        reach < gist_below       → the gist, without its specifics
+        otherwise                → recalled, but **hedged** — never crisp
+
+    A recent memory is *never* recalled with full confidence, however hard it is
+    cued. That is the correction the first CDR 0.5 drive forced: with a crisp top
+    rung, a direct question ("what did you have for breakfast?") cues at 1.0 and
+    was answered perfectly every time, and a clinical interview asks nothing but
+    direct questions. The impairment was aimed squarely at the questions a
+    clinician never asks.
+
+    A window of zero days makes nothing recent, which is what healthy means.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     recent_window_days: int = Field(default=0, ge=0)
-    cue_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
-    detail_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: Below this reach, the memory does not come to mind at all.
+    withhold_below: float = Field(default=0.0, ge=0.0, le=2.0)
+    #: Below this reach, the gist survives but the specifics do not.
+    gist_below: float = Field(default=0.0, ge=0.0, le=2.0)
+    #: How much a squarely-aimed question helps. This is gentle cueing, and it is
+    #: the mechanism itself rather than a simulation of one: a more specific
+    #: question raises `cue`, which raises reach, which climbs the ladder.
+    cue_weight: float = Field(default=0.0, ge=0.0, le=2.0)
 
     @model_validator(mode="after")
     def _thresholds_are_ordered(self) -> Self:
-        if self.detail_threshold < self.cue_threshold:
+        if self.gist_below < self.withhold_below:
             raise ValueError(
-                f"detail_threshold ({self.detail_threshold}) must be at least "
-                f"cue_threshold ({self.cue_threshold}): a memory cued too weakly to "
-                "recall cannot be cued strongly enough to recall in full"
+                f"gist_below ({self.gist_below}) must be at least withhold_below "
+                f"({self.withhold_below}): a memory too far out of reach to recall "
+                "cannot be within reach of recalling as gist"
             )
         return self
 
@@ -75,15 +98,21 @@ class Orientation(BaseModel):
 class Speech(BaseModel):
     """The cadence of speech-level difficulty. Consumed by `impairment.voice`.
 
-    Deterministic on purpose: word-finding fires every Nth turn, and the
-    long-question note fires when the caregiver's message has more parts than she
-    can hold. Zero disables either, which is what healthy means.
+    Probabilities, not a fixed cadence — but hashed, not rolled, so a session
+    replays identically. "Every 4th turn" was the first attempt and it was both
+    too regular to be human and, as the first drive showed, too weak to be obeyed:
+    a soft note buried in a long prompt produced *zero* word-finding in twenty
+    turns. Frequency is now a probability and the instruction is imperative.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    word_finding_every_n_turns: int = Field(default=0, ge=0)
+    #: Chance, per reply, that one word will not come. Clinically 5-10%.
+    word_finding_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: A message with more parts than this may overrun what she can hold at once.
     long_question_clauses: int = Field(default=0, ge=0)
+    #: Chance she actually loses the thread of such a message, rather than coping.
+    long_question_probability: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class CognitiveProfile(BaseModel):
@@ -100,9 +129,31 @@ class CognitiveProfile(BaseModel):
     #: so at the moment a memory fails her. A clinical feature, not a leak.
     insight: bool = False
 
+    #: How many turns of the live conversation she can hold. `None` leaves the
+    #: healthy window (`settings.working_memory_turns`) alone.
+    #:
+    #: This is what makes a delayed-recall probe mean anything. Three words given
+    #: at turn three and asked for at turn nine were sitting *verbatim in the
+    #: prompt*, so she read them straight back — a perfect score on the single most
+    #: diagnostic question in the CDR interview, produced by a transcript window
+    #: rather than by memory. Shortening the window is what turns that probe from
+    #: free into real.
+    working_memory_turns: int | None = Field(default=None, gt=0)
+
     @property
     def gates_recall(self) -> bool:
         return self.recall.recent_window_days > 0
+
+    @property
+    def is_impaired(self) -> bool:
+        """Whether this profile changes anything at all."""
+        return (
+            self.gates_recall
+            or self.insight
+            or self.working_memory_turns is not None
+            or self.orientation.day_and_date != "confident"
+            or self.speech.word_finding_probability > 0
+        )
 
 
 #: The profile that changes nothing. `Conversation` defaults to it, so every
