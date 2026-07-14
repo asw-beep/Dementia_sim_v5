@@ -2,11 +2,12 @@
 #
 # Bring the persona up, and take it back down.
 #
-#   ./run start     seed if needed, check the model, serve
-#   ./run kill      stop the server
-#   ./run status    is anything up, and can it reach the model
-#   ./run logs      follow the server log
-#   ./run reset     wipe the database and re-seed (she forgets everything)
+#   ./run start           seed if needed, check the model, serve — healthy
+#   ./run start cdr05     the same, at CDR 0.5 (any name in data/profiles/)
+#   ./run kill            stop the server
+#   ./run status          is anything up, can it reach the model, which severity
+#   ./run logs            follow the server log
+#   ./run reset           wipe the database and re-seed (she forgets everything)
 #
 # Everything it starts, it can stop. There is one PID file and one log file, and
 # `kill` uses the PID file rather than pattern-matching the process table, so it
@@ -49,7 +50,17 @@ PY
 start() {
   if running; then
     say "already running: http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    say "  (`./run kill` first if you want to change profile)"
     exit 0
+  fi
+
+  # `./run start cdr05` → data/profiles/cdr05.yaml. No argument is healthy, which
+  # is the Phase 1 persona exactly: no impairment layer is constructed at all.
+  local profile_arg=()
+  if [[ -n "${1:-}" ]]; then
+    PROFILE_FILE="data/profiles/${1}.yaml"
+    [[ -f "$PROFILE_FILE" ]] || fail "no profile '${1}'. Available: $(ls data/profiles/*.yaml | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
+    profile_arg=(--profile "$PROFILE_FILE")
   fi
 
   printf '\nStarting the persona simulator.\n\n'
@@ -77,11 +88,17 @@ start() {
   # today `uv` happens to forward the signal, but "happens to" is not a thing to
   # build a shutdown on. The group id is what we record, so `kill` can take down
   # everything `start` brought up, and nothing else.
-  setsid nohup uv run persona serve --port "$PORT" >"$LOGFILE" 2>&1 &
+  setsid nohup uv run persona serve --port "$PORT" "${profile_arg[@]}" >"$LOGFILE" 2>&1 &
   echo $! >"$PIDFILE"
 
   for _ in $(seq 30); do
     if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/personas" 2>/dev/null; then
+      # Which Elena is actually up. Asked of the server, not of the argument we
+      # passed it: a tester driving what they believe is CDR 0.5 while talking to
+      # the healthy persona will conclude the impairment layer does not work.
+      label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
+        | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
+      say "profile: ${label:-healthy}"
       printf '\n  ready → http://127.0.0.1:%s\n\n' "$PORT"
       exit 0
     fi
@@ -130,6 +147,9 @@ stop() {
 status() {
   if running; then
     say "server:  up   → http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
+      | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
+    say "profile: ${label:-healthy}"
   else
     say "server:  down"
   fi
@@ -157,7 +177,7 @@ PY
 }
 
 case "${1:-}" in
-  start)  start ;;
+  start)  start "${2:-}" ;;
   kill|stop) stop ;;
   status) status ;;
   logs)   tail -f "$LOGFILE" ;;
@@ -169,12 +189,14 @@ case "${1:-}" in
     uv run persona seed "$SEED" 2>&1 | sed 's/^/  /'
     ;;
   *)
-    printf 'usage: ./run {start|kill|status|logs|reset}\n\n'
-    printf '  start   seed if needed, check the model, serve on :%s\n' "$PORT"
-    printf '  kill    stop the server\n'
-    printf '  status  what is up, and whether the model answers\n'
-    printf '  logs    follow the server log\n'
-    printf '  reset   wipe the database and re-seed (she forgets everything)\n'
+    printf 'usage: ./run {start [profile]|kill|status|logs|reset}\n\n'
+    printf '  start          seed if needed, check the model, serve on :%s (healthy)\n' "$PORT"
+    printf '  start cdr05    the same, at CDR 0.5\n'
+    printf '  kill           stop the server\n'
+    printf '  status         what is up, whether the model answers, which severity\n'
+    printf '  logs           follow the server log\n'
+    printf '  reset          wipe the database and re-seed (she forgets everything)\n\n'
+    printf 'profiles: %s\n' "$(ls data/profiles/*.yaml 2>/dev/null | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
     exit 1
     ;;
 esac

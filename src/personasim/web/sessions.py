@@ -21,6 +21,7 @@ from datetime import datetime
 
 from personasim.config import Settings
 from personasim.conversation import Conversation
+from personasim.impairment import HEALTHY, CognitiveProfile
 from personasim.llm.base import LLMClient
 from personasim.models.conversation import SessionId
 from personasim.models.memory import utc_now
@@ -46,15 +47,28 @@ class Exchange:
 class SessionStore:
     """Every conversation currently open in this process."""
 
-    def __init__(self, database: Database, llm: LLMClient, settings: Settings) -> None:
+    def __init__(
+        self,
+        database: Database,
+        llm: LLMClient,
+        settings: Settings,
+        profile: CognitiveProfile | None = None,
+    ) -> None:
         self._database = database
         self._llm = llm
         self._settings = settings
+        self._profile = profile or HEALTHY
         self._live: dict[SessionId, Conversation] = {}
         self._transcripts: dict[SessionId, list[Exchange]] = {}
 
+    @property
+    def profile(self) -> CognitiveProfile:
+        return self._profile
+
     def open(self, persona: Persona) -> SessionId:
-        chat = Conversation(persona, self._llm, self._database, self._settings)
+        chat = Conversation(
+            persona, self._llm, self._database, self._settings, profile=self._profile
+        )
         chat.start()
         self._live[chat.session_id] = chat
         self._transcripts[chat.session_id] = []

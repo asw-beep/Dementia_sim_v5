@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from personasim.config import Settings, get_settings
+from personasim.impairment import CognitiveProfile, load_profile
 from personasim.llm import LLMError, build_client
 from personasim.storage.database import Database
 from personasim.storage.repositories.persona import PersonaRepository
@@ -40,12 +41,21 @@ class Said(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
-def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    database: Database | None = None,
+    profile: CognitiveProfile | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     database = database or Database.from_path(settings.database_path)
     database.create_schema()
 
-    sessions = SessionStore(database, build_client(settings), settings)
+    # An explicit profile wins; otherwise `PERSONA_PROFILE` selects one; otherwise
+    # she is healthy, and no impairment layer is constructed at all.
+    if profile is None and settings.profile is not None:
+        profile = load_profile(settings.profile)
+
+    sessions = SessionStore(database, build_client(settings), settings, profile=profile)
     app = FastAPI(title="Persona Simulator")
 
     @app.get("/api/personas")
@@ -64,6 +74,16 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
             )
             for persona_id, identity in found
         ]
+
+    @app.get("/api/profile")
+    def current_profile() -> dict[str, str]:
+        """Which severity is being served.
+
+        Said out loud, because the alternative is a tester concluding the
+        impairment layer does not work when what they are actually talking to is
+        the healthy persona.
+        """
+        return {"name": sessions.profile.name, "label": sessions.profile.label}
 
     @app.post("/api/personas/{persona_id}/session")
     def open_session(persona_id: str) -> dict[str, str]:

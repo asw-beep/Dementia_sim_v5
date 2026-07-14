@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from personasim.config import Settings
+from personasim.impairment import load_profile
 from personasim.llm.base import ChatMessage
 from personasim.persona import build_persona, read_seed_file
 from personasim.storage import Database, PersonaRepository
@@ -24,6 +25,7 @@ from personasim.web.app import create_app
 
 SEED_FILE = Path(__file__).resolve().parents[1] / "data" / "personas" / "elena.yaml"
 WEB = Path(__file__).resolve().parents[1] / "src" / "personasim" / "web"
+PROFILES = Path(__file__).resolve().parents[1] / "data" / "profiles"
 
 
 class ScriptedLLM:
@@ -62,6 +64,67 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     )
     with TestClient(create_app(Settings(), database)) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def impaired_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """The same app, served at CDR 0.5."""
+    database = Database.from_path(tmp_path / "web.db")
+    database.create_schema()
+    with database.session() as db:
+        PersonaRepository(db).save(build_persona(read_seed_file(SEED_FILE)))
+
+    monkeypatch.setattr(
+        "personasim.web.app.build_client",
+        lambda settings: ScriptedLLM("It's slipped my mind."),
+    )
+    profile = load_profile(PROFILES / "cdr05.yaml")
+    with TestClient(create_app(Settings(), database, profile=profile)) as test_client:
+        yield test_client
+
+
+class TestTheServedProfile:
+    """The web app is a second adapter over the same loop, and it must carry the
+    profile the way the CLI does.
+
+    This is pinned because it shipped broken for an hour: `--profile` reached
+    `persona chat` and not `persona serve`, so `./run start` served the *healthy*
+    persona — and a tester driving what they believe is CDR 0.5 while talking to a
+    healthy woman concludes the impairment layer does not work.
+    """
+
+    def test_healthy_by_default(self, client: TestClient) -> None:
+        assert client.get("/api/profile").json()["name"] == "healthy"
+
+    def test_the_profile_is_named_so_a_tester_knows_which_elena_this_is(
+        self, impaired_client: TestClient
+    ) -> None:
+        assert impaired_client.get("/api/profile").json()["name"] == "cdr05"
+
+    def test_an_impaired_session_actually_gates_recall(self, impaired_client: TestClient) -> None:
+        """Not merely reported — the served conversation is genuinely impaired."""
+        session = open_session(impaired_client)
+
+        told = impaired_client.post(
+            f"/api/session/{session}/message", json={"text": "I live in Portland."}
+        ).json()
+        assert told["formed"]  # formation is not impaired
+
+        asked = impaired_client.post(
+            f"/api/session/{session}/message",
+            json={"text": "how are things at home these days?"},
+        ).json()
+
+        withheld = asked["trace"]["withheld"]
+        assert any("Portland" in gone["summary"] for gone in withheld)
+
+    def test_a_healthy_session_withholds_nothing(self, client: TestClient) -> None:
+        session = open_session(client)
+        reply = client.post(
+            f"/api/session/{session}/message", json={"text": "tell me about your dog"}
+        ).json()
+
+        assert reply["trace"]["withheld"] == []
 
 
 def open_session(client: TestClient) -> str:

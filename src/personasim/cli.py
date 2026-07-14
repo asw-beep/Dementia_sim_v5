@@ -74,6 +74,14 @@ def _build_parser() -> argparse.ArgumentParser:
     serve = subcommands.add_parser("serve", help="serve the web frontend")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "a cognitive profile YAML (see data/profiles/). Defaults to "
+            "PERSONA_PROFILE, or healthy if that is unset too."
+        ),
+    )
 
     trace = subcommands.add_parser(
         "trace",
@@ -311,7 +319,13 @@ def _check(file: Path) -> int:
     return 0 if gaps.is_clean else 1
 
 
-def _serve(settings: Settings, database_override: Path | None, host: str, port: int) -> int:
+def _serve(
+    settings: Settings,
+    database_override: Path | None,
+    host: str,
+    port: int,
+    profile_path: Path | None,
+) -> int:
     """Run the web adapter.
 
     Imported here, not at module scope: `persona seed` and `persona chat` must not
@@ -321,10 +335,20 @@ def _serve(settings: Settings, database_override: Path | None, host: str, port: 
 
     from personasim.web import create_app
 
+    chosen = profile_path or settings.profile
+    try:
+        profile = load_profile(chosen) if chosen else HEALTHY
+    except ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
     database = Database.from_path(database_override or settings.database_path)
-    app = create_app(settings, database)
+    app = create_app(settings, database, profile=profile)
 
     print(f"Serving on http://{host}:{port}")
+    # Said every time. A tester who thinks they are driving CDR 0.5 and is in fact
+    # talking to the healthy persona will conclude the impairment layer is broken.
+    print(f"Cognitive profile: {profile.label or profile.name}")
     uvicorn.run(app, host=host, port=port, log_level="warning")
     return 0
 
@@ -344,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
         return _trace(settings, args.database, args.persona, args.session, args.list)
 
     if args.command == "serve":
-        return _serve(settings, args.database, args.host, args.port)
+        return _serve(settings, args.database, args.host, args.port, args.profile)
 
     if args.command == "new":
         return _new(args.output)
