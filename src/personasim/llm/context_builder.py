@@ -157,7 +157,7 @@ def build_memory_context(trace: MemoryTrace, source: MemorySource) -> str:
         lines.append("")
         lines.append(heading)
         lines.extend(
-            f"- {_render(memories[item.memory_id], roles)}"
+            f"- {_render_direct(item, memories[item.memory_id], roles)}"
             for item in direct
             if _heading_for(memories[item.memory_id]) == heading
         )
@@ -331,17 +331,30 @@ def build_messages(
     source: MemorySource,
     user_message: str,
     history: Sequence[Message] = (),
+    *,
+    now_text: str | None = None,
+    voice_notes: str = "",
 ) -> list[ChatMessage]:
     """The full prompt for one turn: who you are, who you are talking to, what you
     recall, and what was said.
 
     `history` is the windowed transcript from working memory, and excludes the
     message being answered.
+
+    `now_text` and `voice_notes` are the impairment layer's two hooks into the
+    prompt: a replacement for `render_now()` when orientation is degraded, and
+    per-turn speech fragments. Both default to nothing, and with the defaults the
+    prompt is byte-for-byte the Phase 1 prompt.
     """
+    memory_context = build_memory_context(trace, source)
+    if voice_notes:
+        memory_context = f"{memory_context}\n\n{voice_notes}"
+
+    now_block = now_text if now_text is not None else render_now()
     system = build_system_prompt(
         identity,
-        build_memory_context(trace, source),
-        cast=f"{render_now()}\n\n{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
+        memory_context,
+        cast=f"{now_block}\n\n{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
     )
     return [
         ChatMessage(role=ChatRole.SYSTEM, content=system),
@@ -400,6 +413,23 @@ def _sections_in_rank_order(
     for item in direct:
         seen[_heading_for(memories[item.memory_id])] = None
     return list(seen)
+
+
+def _render_direct(item: RetrievedMemory, memory: Memory, roles: dict[str, str]) -> str:
+    """Render a matched memory — in full, or as gist alone when a recall gate says
+    the specifics are out of reach this turn.
+
+    The gist is the authored summary with no date, no place, and no participants,
+    plus a statement that the missing parts are *missing* — otherwise the model
+    treats the absence as a gap to be helpfully filled, and fills it.
+    """
+    if not item.detail_withheld:
+        return _render(memory, roles)
+    return (
+        f"{memory.summary} — you remember this much, but the particulars (exactly "
+        "when, where, who else was there) are hazy just now. Do not supply them, "
+        "and do not guess at them; if asked, say they escape you at the moment."
+    )
 
 
 def _render(memory: Memory, roles: dict[str, str]) -> str:

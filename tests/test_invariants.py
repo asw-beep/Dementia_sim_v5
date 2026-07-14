@@ -14,8 +14,12 @@ import pytest
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "personasim"
 
-# Phase 2 introduces cognitive impairment. Phase 1 must not contain it, not even
-# as a disabled flag. Matched against identifiers and comments in source.
+# Cognitive impairment lives in `impairment/` and nowhere else. During Phase 1
+# this ban covered the whole tree, so impairment could not be smuggled in even as
+# a disabled flag; with Phase 2 underway it is narrowed — not deleted — to the
+# healthy core, per the decision recorded in docs/roadmap.md. The impairment
+# package is the one place this vocabulary belongs; everything else must stay
+# exactly as clean as Phase 1 left it.
 PHASE_2_CONCEPTS = [
     "dementia",
     "alzheimer",
@@ -33,17 +37,22 @@ def python_files() -> list[Path]:
     return sorted(SRC.rglob("*.py"))
 
 
+def healthy_core_files() -> list[Path]:
+    """Everything outside `impairment/` — the Phase 1 core, which stays clean."""
+    return [path for path in python_files() if "impairment" not in path.parts]
+
+
 def test_source_tree_is_non_empty() -> None:
     assert python_files()
 
 
 @pytest.mark.parametrize("concept", PHASE_2_CONCEPTS)
-def test_no_phase_2_concepts_in_source(concept: str) -> None:
+def test_no_impairment_concepts_in_the_healthy_core(concept: str) -> None:
     pattern = re.compile(concept, re.IGNORECASE)
     offenders = [
-        path.relative_to(SRC) for path in python_files() if pattern.search(path.read_text())
+        path.relative_to(SRC) for path in healthy_core_files() if pattern.search(path.read_text())
     ]
-    assert not offenders, f"Phase 2 concept {concept!r} leaked into Phase 1: {offenders}"
+    assert not offenders, f"impairment concept {concept!r} in the healthy core: {offenders}"
 
 
 def _imported_modules(path: Path) -> list[str]:
@@ -225,4 +234,46 @@ def test_models_package_performs_no_io() -> None:
                 if name.split(".")[0] in forbidden:
                     offenders.append(f"{path.name} imports {name}")
 
+    assert not offenders, offenders
+
+
+def test_impairment_is_deterministic_and_recall_side_only() -> None:
+    """The impairment layer withholds and hedges; it never manufactures.
+
+    Three imports would each break that, and all three are banned. An LLM (or the
+    adapter that wraps one) would let impairment *generate* — and generated content
+    beside a permanent store is how an invented life gets written down. Storage
+    would let it touch the store directly, turning "cannot reach a memory" into
+    "the memory is gone". And `random` would make the same question fail
+    differently on two askings — fluctuating confusion, a later severity, and the
+    end of reproducibility, which a clinical validation cannot survive.
+    """
+    forbidden = ("personasim.llm", "personasim.storage")
+    offenders = [
+        f"{path.relative_to(SRC)} imports {module}"
+        for path in sorted((SRC / "impairment").rglob("*.py"))
+        for module in _imported_modules(path)
+        if module.startswith(forbidden)
+        or module.split(".")[0] in {"ollama", "random", "sqlalchemy"}
+    ]
+    assert not offenders, offenders
+
+
+def test_the_healthy_core_does_not_import_impairment() -> None:
+    """Phase 2 wraps Phase 1; Phase 1 must not know it exists.
+
+    The conversation loop is the single, deliberate exception: it is the
+    compositor, and wiring the wrapper in front of the engine is its job. If
+    retrieval, formation, working memory, the models, or storage ever import the
+    impairment package, the layer has stopped being a wrapper and started being
+    an edit — which is the entire architectural promise of the phase, broken.
+    """
+    allowed = {SRC / "conversation" / "loop.py", SRC / "cli.py", SRC / "web"}
+    offenders = [
+        f"{path.relative_to(SRC)} imports {module}"
+        for path in healthy_core_files()
+        if path not in allowed and not any(parent in allowed for parent in path.parents)
+        for module in _imported_modules(path)
+        if module.startswith("personasim.impairment")
+    ]
     assert not offenders, offenders

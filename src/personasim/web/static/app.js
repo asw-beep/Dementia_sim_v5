@@ -118,6 +118,17 @@ function attachWhy(bubbleEl, trace, formed) {
     details.append(list);
   }
 
+  if (trace.withheld?.length) {
+    const list = document.createElement("ul");
+    list.className = "withheld";
+    for (const m of trace.withheld) {
+      const li = document.createElement("li");
+      li.textContent = `withheld: ${m.summary} — ${m.reason}`;
+      list.append(li);
+    }
+    details.append(list);
+  }
+
   if (formed?.length) {
     const f = document.createElement("p");
     f.className = "formed";

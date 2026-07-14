@@ -50,12 +50,17 @@ def render_trace(trace: MemoryTrace, *, indent: str = "  ") -> str:
     """One retrieval pass, as a human reads it."""
     lines = [f"{indent}{trace.reason}"]
 
-    if trace.is_empty:
+    if trace.is_empty and not trace.withheld:
         lines.append(f"{indent}  (nothing retrieved — she is speaking from identity alone)")
         return "\n".join(lines)
 
     for memory in trace.retrieved:
         lines.append(f"{indent}  {_render_memory(memory)}")
+
+    # A memory that was found and kept out of reach is the most important line a
+    # trace can show: it is what the caregiver just experienced as a symptom.
+    for gone in trace.withheld:
+        lines.append(f"{indent}  [withheld] {gone.summary}   ({gone.reason})")
 
     return "\n".join(lines)
 
@@ -65,6 +70,8 @@ def _render_memory(memory: RetrievedMemory) -> str:
     dragged it in. A memory the question never asked for is the interesting one:
     it is there to explain, and the trace should say so."""
     head = f"[{memory.score:.2f}] {memory.memory_type.value[:4]}  {memory.summary}"
+    if memory.detail_withheld:
+        head = f"{head}   (gist only — specifics out of reach)"
 
     if memory.was_expanded and memory.via_relation is not None:
         return f"{head}   <-{memory.via_relation.value}-"

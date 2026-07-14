@@ -113,4 +113,8 @@ def _trace_of(dumped: dict[str, object]) -> dict[str, object]:
         "reason": dumped["reason"],
         "intent": dumped["intent"],
         "retrieved": dumped["retrieved"],
+        # Present under a cognitive profile; [] when healthy. A memory that was
+        # found and kept out of reach is the most important line the panel can
+        # show — it is what the user just experienced as a symptom.
+        "withheld": dumped.get("withheld", []),
     }

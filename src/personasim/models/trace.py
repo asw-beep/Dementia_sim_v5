@@ -60,9 +60,33 @@ class RetrievedMemory(BaseModel):
     linked_from: MemoryId | None = None
     via_relation: LinkRelation | None = None
 
+    # Set by a recall gate: the memory surfaced, but only its gist may be rendered —
+    # the specifics (date, place, participants) are out of reach this turn.
+    detail_withheld: bool = False
+
     @property
     def was_expanded(self) -> bool:
         return self.linked_from is not None
+
+
+class WithheldMemory(BaseModel):
+    """A memory retrieval found but a recall gate kept out of reach.
+
+    This is the difference between an explanation and a hole. A memory that was
+    not recalled must not simply vanish from the trace — "found, and withheld,
+    because…" is what makes a recall failure distinguishable from a bug, and it is
+    the evidence a later assessment phase is built on. The summary is here for the
+    debugger reading the trace; it is never rendered into a prompt.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    memory_id: MemoryId
+    memory_type: MemoryType
+    summary: str
+    cue_strength: float = Field(ge=0.0)
+    age_days: int = Field(ge=0)
+    reason: str = Field(min_length=1)
 
 
 class MemoryTrace(BaseModel):
@@ -75,6 +99,7 @@ class MemoryTrace(BaseModel):
     entities: list[str] = Field(default_factory=list)
     searched_types: list[MemoryType] = Field(default_factory=list)
     retrieved: list[RetrievedMemory] = Field(default_factory=list)
+    withheld: list[WithheldMemory] = Field(default_factory=list)
     reason: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -86,3 +111,14 @@ class MemoryTrace(BaseModel):
     def is_empty(self) -> bool:
         """No memory supported this response — the persona is speaking from identity alone."""
         return not self.retrieved
+
+    @property
+    def memory_is_silent(self) -> bool:
+        """Nothing was found at all — as opposed to found and kept out of reach.
+
+        This is the guard improvisation must use, and `is_empty` is not it. A turn
+        whose memories were all withheld is *empty* (nothing supports the response)
+        but not *silent*: the fact exists, and inventing a replacement for it would
+        write a fabrication over a real memory. Only genuine silence may improvise.
+        """
+        return not self.retrieved and not self.withheld

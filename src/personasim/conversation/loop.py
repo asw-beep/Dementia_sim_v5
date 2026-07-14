@@ -22,6 +22,8 @@ import structlog
 
 from personasim.config import Settings
 from personasim.conversation.improvise import everyday_for, improvise
+from personasim.impairment import HEALTHY, CognitiveProfile, ImpairedRetrievalEngine
+from personasim.impairment.voice import render_now_uncertain, voice_notes
 from personasim.llm.base import LLMClient
 from personasim.llm.context_builder import build_messages
 from personasim.memory.formation import ConsolidationPlan, consolidate, form_memories
@@ -81,18 +83,30 @@ class Conversation:
         llm: LLMClient,
         database: Database,
         settings: Settings,
+        profile: CognitiveProfile | None = None,
     ) -> None:
         self._persona = persona
         self._llm = llm
         self._database = database
         self._settings = settings
+        self._profile = profile or HEALTHY
 
         # Retrieval runs against the persona held in memory, and formation appends
         # to it. A fact disclosed on turn two is therefore retrievable on turn
         # three, without a database round trip and without a second source of truth.
         self._source = PersonaMemorySource(persona)
-        self._engine = RetrievalEngine(self._source, settings)
+
+        # The impairment layer wraps retrieval; it never replaces it. Under the
+        # healthy profile the engine is the bare Phase 1 engine — not a wrapper
+        # configured to do nothing, but no wrapper at all.
+        engine = RetrievalEngine(self._source, settings)
+        self._engine: RetrievalEngine | ImpairedRetrievalEngine = (
+            ImpairedRetrievalEngine(engine, self._profile, self._source)
+            if self._profile.gates_recall
+            else engine
+        )
         self._working = WorkingMemory(persona.id, capacity=settings.working_memory_turns)
+        self._turn_number = 0
 
         # Held here, not read back from working memory. `discard()` starts a fresh
         # session — which is right for the RAM and wrong for us: a conversation
@@ -161,6 +175,7 @@ class Conversation:
         if self._ended:
             raise ConversationError("this conversation has ended")
 
+        self._turn_number += 1
         user_message = Message(role=Role.USER, content=text)
         self._working.observe_user_message(user_message)
 
@@ -179,7 +194,9 @@ class Conversation:
         self._working.set_topic(_topic_of(trace))
 
         # The windowed transcript, which excludes the message being answered — it
-        # is the last thing in the prompt, not part of the history.
+        # is the last thing in the prompt, not part of the history. Under the
+        # healthy profile the two impairment hooks resolve to None and "", and the
+        # prompt is byte-for-byte the Phase 1 prompt.
         reply_text = self._llm.generate(
             build_messages(
                 self._persona.identity,
@@ -187,6 +204,10 @@ class Conversation:
                 self._source,
                 text,
                 history=self._working.transcript(),
+                now_text=render_now_uncertain(self._profile),
+                voice_notes=voice_notes(
+                    self._profile, turn=self._turn_number, user_message=text, trace=trace
+                ),
             )
         )
 
@@ -207,15 +228,20 @@ class Conversation:
 
         Two guards, and they are the whole safety argument:
 
-        `trace.is_empty` — if retrieval found *anything*, this does not run, so an
-        improvised detail can never contradict or overwrite an authored one.
+        `trace.memory_is_silent` — if retrieval found *anything*, this does not run,
+        so an improvised detail can never contradict or overwrite an authored one.
+        Silent, not merely empty: a memory a recall gate withheld still *exists*,
+        and a turn that failed to reach it must produce "it doesn't come to mind" —
+        never a permanent invention written over the top of a real fact. That would
+        be manufacturing a memory she actually has, which is the one thing the
+        impairment layer must never cause.
 
         `everyday_for` — the whitelist is exhaustive. There is no path from here to a
         person, a death, a job, or a life event. Asked about a sister she does not
         have, she still says it does not come to mind, because `sister` is not an
         everyday attribute and never will be.
         """
-        if not self._settings.improvise_everyday or not trace.is_empty:
+        if not self._settings.improvise_everyday or not trace.memory_is_silent:
             return None
         if trace.intent is RetrievalIntent.SMALL_TALK or scope_of(text) is Scope.CAREGIVER:
             return None

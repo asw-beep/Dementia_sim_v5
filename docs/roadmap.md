@@ -84,7 +84,15 @@ the log — the trace records that it was found, that the profile suppressed it,
 why. An unexplained failure is indistinguishable from a bug, and Phase 3's report
 is built directly on this.
 
-### Sprint 2A — CDR 0.5 ⬜ (current)
+### Sprint 2A — CDR 0.5 🔶 (current — mechanics built, drive pending)
+
+Clinical spec: `docs/disease_profiles/CDR05.md` (ground truth). Design:
+`docs/design/sprint1_cdr05.md`. Built: `impairment/` (profile, recall gate, engine
+wrapper, voice), `data/profiles/{healthy,cdr05}.yaml`, `persona chat --profile`,
+withheld memories on the trace and in `persona trace`. All 459 Phase 1 tests pass
+unmodified; 30 new tests pin the gate, the landmine (a withheld memory never
+triggers improvisation), and the formation boundary. **Not done until the
+adversarial drive against a real model is clean and the profile numbers are tuned.**
 
 **Do not build "mild Alzheimer's". Build one patient who consistently behaves like
 CDR 0.5.** That is a far smaller thing, and it is the whole sprint.
@@ -687,24 +695,25 @@ deliberately violated, so none is vacuous.
 
 ## Open issues
 
-**Invariant 1 bans Phase 2 vocabulary from `src/`, and Sprint 2A's first commit will
-trip it.** `tests/test_invariants.py::test_no_phase_2_concepts_in_source` fails if
-`dementia`, `confabulat`, `memory_decay`, `cognitive_decline` and friends appear
-anywhere under `src/personasim/` — deliberately, so Phase 1 could not smuggle in
-impairment as a disabled flag. It did its job; it is now in the way.
-
-It must be **narrowed, not deleted.** The invariant that still matters is that the
-*healthy core* stays clean: `models/`, `storage/`, `memory/formation/`, and the
-Phase 1 body of `retrieval/` may not learn the vocabulary of disease. The impairment
-package is exempt by construction, because it is the one place the vocabulary belongs.
-Deleting the test would give up the only mechanical guarantee that Phase 2 is a
-wrapper rather than an edit — which is the entire architectural promise of the phase.
-
-Decide this *before* the first Sprint 2A commit, not after it goes red.
+**Sprint 2A's numbers are untuned, and the hand-drive is not finished.** The
+thresholds in `data/profiles/cdr05.yaml` (window 90d, cue 0.55, detail 0.80,
+word-finding every 4th turn) are starting values. The sprint's headline criterion —
+a caregiver can tell her from the healthy persona in 15–20 minutes while still
+recognising her — is judged on a real adversarial transcript, and only tuning
+against such transcripts closes it.
 
 ---
 
 ## Closed issues
+
+**Invariant 1 narrowed to the healthy core, as decided.** It banned Phase 2
+vocabulary from all of `src/`; it now bans it from everything *outside*
+`src/personasim/impairment/`, which is the one place that vocabulary belongs. It was
+narrowed, not deleted, and it gained two siblings: `impairment/` may import neither
+the LLM, nor storage, nor `random` (withholds and hedges, never manufactures — and
+deterministically, or the trace lies); and the healthy core may not import
+`impairment` back, except the conversation loop, whose job is composition. The
+wrapper claim is still enforced by test, from both directions.
 
 Every issue raised in Stages 5–8 is closed. The five that blocked Stage 8:
 

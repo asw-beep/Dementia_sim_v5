@@ -14,6 +14,7 @@ from pathlib import Path
 from personasim.config import Settings, get_settings
 from personasim.conversation import Conversation
 from personasim.conversation.render import render_session, render_trace
+from personasim.impairment import HEALTHY, CognitiveProfile, ProfileError, load_profile
 from personasim.llm import LLMClient, LLMError, build_client
 from personasim.logging import configure_logging
 from personasim.models.persona import Persona, PersonaId
@@ -50,6 +51,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--trace",
         action="store_true",
         help="print the memory trace behind every reply — which memories fired, and why",
+    )
+    chat.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "a cognitive profile YAML (see data/profiles/). Omitted, the persona "
+            "is healthy — exactly the Phase 1 behaviour."
+        ),
     )
 
     new = subcommands.add_parser(
@@ -136,8 +145,18 @@ def _load(database: Database, persona_id: PersonaId) -> Persona | None:
 
 
 def _chat(
-    settings: Settings, database_override: Path | None, persona_id: PersonaId, show_trace: bool
+    settings: Settings,
+    database_override: Path | None,
+    persona_id: PersonaId,
+    show_trace: bool,
+    profile_path: Path | None,
 ) -> int:
+    try:
+        profile = load_profile(profile_path) if profile_path else HEALTHY
+    except ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
     database = _open_database(settings, database_override)
     try:
         persona = _load(database, persona_id)
@@ -150,7 +169,7 @@ def _chat(
             print(f"error: {llm.model} is not reachable at {settings.llm_host}.", file=sys.stderr)
             return 1
 
-        return _talk(persona, llm, database, settings, show_trace)
+        return _talk(persona, llm, database, settings, show_trace, profile)
     finally:
         database.dispose()
 
@@ -161,12 +180,15 @@ def _talk(
     database: Database,
     settings: Settings,
     show_trace: bool,
+    profile: CognitiveProfile,
 ) -> int:
     """The loop. `Conversation` is a context manager, so the session is closed and
     working memory discarded even if this falls over."""
     print(f"Talking to {persona.identity.name}. Ctrl-D or /quit to end the session.")
+    if profile.gates_recall or profile.name != HEALTHY.name:
+        print(f"Cognitive profile: {profile.label or profile.name}")
 
-    with Conversation(persona, llm, database, settings) as chat:
+    with Conversation(persona, llm, database, settings, profile=profile) as chat:
         print()
 
         while True:
@@ -316,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         return _seed(settings, args.database, args.file, args.force)
 
     if args.command == "chat":
-        return _chat(settings, args.database, args.persona, args.trace)
+        return _chat(settings, args.database, args.persona, args.trace, args.profile)
 
     if args.command == "trace":
         return _trace(settings, args.database, args.persona, args.session, args.list)

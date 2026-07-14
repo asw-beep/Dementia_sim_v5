@@ -1,0 +1,39 @@
+# CDR 0.5 — very mild / questionable. Clinical ground truth:
+# docs/disease_profiles/CDR05.md. Design: docs/design/sprint1_cdr05.md.
+#
+# These numbers are parameters, not clinical constants. They are starting values
+# to be tuned by driving the persona against a real model — the acceptance
+# criterion is a transcript a trained caregiver reads as CDR 0.5, not these
+# particular decimals.
+
+name: cdr05
+label: "CDR 0.5 — very mild, questionable"
+
+recall:
+  # A conversation-formed memory younger than this must be cued to be reached.
+  recent_window_days: 90
+  # Below this keyword-overlap cue, a recent memory does not come to mind at all.
+  # A vague "what did we talk about?" fails; a specific "what did I say about my
+  # daughter?" succeeds — which is gentle cueing, working exactly as the clinic
+  # describes it.
+  cue_threshold: 0.55
+  # Between the two thresholds the gist survives but the specifics (exactly when,
+  # where, who else) are out of reach this turn.
+  detail_threshold: 0.80
+
+orientation:
+  # She knows the month, the year, the place and the person. The weekday and the
+  # exact date have gone slippery — visible only when someone asks.
+  day_and_date: uncertain
+
+speech:
+  # Every fourth turn, one word refuses to come. Intermittent, never aphasic.
+  word_finding_every_n_turns: 4
+  # A message with more parts than this is more than she can hold at once.
+  long_question_clauses: 3
+
+# Preserved insight is a clinical feature of CDR 0.5, not a leak: she knows she
+# has become a little forgetful, and may say so at the moment a memory fails her.
+# Do not switch this off to make her seem "more impaired" — losing insight is a
+# later severity.
+insight: true
