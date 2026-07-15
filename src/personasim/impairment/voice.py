@@ -43,20 +43,10 @@ from datetime import datetime
 from personasim.impairment.profile import CognitiveProfile
 from personasim.models.trace import MemoryTrace
 
-WORD_FINDING = (
-    "ONE ordinary word will not come to you in this reply. Not a name and not "
-    "anything from your past — a plain, everyday noun: the object in your hands, "
-    "the room you are in, the thing you were about to mention.\n"
-    "When you reach it, stop. Do not push past it and do not quietly choose an "
-    "easier word — that is what a fluent person does, and you are not managing it "
-    "today. Grope for it in the open: break off, describe the thing by what it does "
-    "or what it is for, try a word that is nearly right, and either arrive at it or "
-    "settle for the description and move on.\n"
-    "Do this for a SINGLE word and no more. The rest of the reply is complete and "
-    "fluent as you have always been — you are not uncertain about everything, you "
-    "have lost exactly one word. Do not list the things you cannot describe, and do "
-    "not remark on it or apologise afterwards."
-)
+# Word-finding is no longer asked of the model here. The prompt seam could not
+# deliver it — a soft note produced zero hesitation, an imperative one a robotic
+# litany — so it is performed on the model's output instead, in
+# `impairment.disfluency`. This module keeps the fragments the seam *can* deliver.
 
 LONG_QUESTION = (
     "That message had several parts, and holding several things at once has become "
@@ -111,7 +101,6 @@ def voice_notes(
     with intrusions. It stays false for a healthy profile, which never fades.
     """
     parts = [
-        _word_finding(profile, session_id, turn),
         _long_question(profile, session_id, turn, user_message),
         _insight(profile, trace),
         FADED_GAP if faded and profile.hold.fades else "",
@@ -195,12 +184,6 @@ def _fires(probability: float, session_id: str, turn: int, what: str) -> bool:
         return True
     digest = hashlib.sha256(f"{session_id}:{turn}:{what}".encode()).digest()
     return int.from_bytes(digest[:8], "big") / 2**64 < probability
-
-
-def _word_finding(profile: CognitiveProfile, session_id: str, turn: int) -> str:
-    if not _fires(profile.speech.word_finding_probability, session_id, turn, "word"):
-        return ""
-    return WORD_FINDING
 
 
 def _long_question(profile: CognitiveProfile, session_id: str, turn: int, user_message: str) -> str:

@@ -26,6 +26,7 @@ from personasim.impairment import (
     apply_recall_gate,
     load_profile,
 )
+from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.hold import ELISION, fade_transcript
 from personasim.impairment.profile import RecallGate, WorkingMemoryHold
 from personasim.impairment.recall import _encoding
@@ -584,24 +585,18 @@ class TestVoice:
         assert voice_notes(HEALTHY, turn=4, user_message="a, b, c, d, and e?", trace=gone) == ""
         assert render_now_impaired(HEALTHY) is None
 
-    def test_word_finding_fires_on_some_turns_and_not_others(self) -> None:
-        """Not a metronome. Every 4th turn read as one, and — worse — the old soft
-        note produced *zero* hesitation in twenty turns of real conversation, which
-        is why the fragment is now imperative rather than suggestive."""
+    def test_word_finding_is_no_longer_a_prompt_fragment(self) -> None:
+        """It moved out of the seam entirely. The model would not perform it, so the
+        prompt no longer asks — `impairment.disfluency` performs it on the output."""
         profile = load_profile(PROFILES / "cdr05.yaml")
         empty = trace_of()
-
-        fired = [
-            "will not come to you"
-            in voice_notes(
+        notes = "\n".join(
+            voice_notes(
                 profile, turn=turn, user_message="how are you?", trace=empty, session_id="s"
             )
             for turn in range(60)
-        ]
-
-        assert any(fired)
-        assert not all(fired)
-        assert sum(fired) / len(fired) < 0.35  # intermittent, never aphasic
+        )
+        assert "will not come to you" not in notes  # the old fragment is gone
 
     def test_a_long_question_can_overrun_her_but_a_short_one_never_does(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
@@ -822,6 +817,73 @@ class TestWorkingMemoryHold:
                 if ELISION in message.content:
                     seen_gap = True
         assert seen_gap  # the fade does bite at this depth
+
+
+class TestWordFinding:
+    """One groping pause, injected into the reply the model already wrote — the
+    behaviour the prompt seam could not deliver, done to the output instead.
+    """
+
+    #: The real CDR 1 profile: the in-test `CDR1` fixture leaves speech at its
+    #: healthy default, and word-finding is a speech parameter.
+    PROFILE = load_profile(PROFILES / "cdr1.yaml")
+    REPLY = "I put the kettle on and set the teapot beside the window to warm."
+
+    def test_healthy_never_stumbles(self) -> None:
+        text, note = inject_word_finding(self.REPLY, HEALTHY, session_id="s", turn=1)
+        assert text == self.REPLY
+        assert note is None
+
+    def test_it_fires_on_some_turns_and_not_others(self) -> None:
+        """Intermittent, never a metronome and never every sentence."""
+        outcomes = [
+            inject_word_finding(self.REPLY, self.PROFILE, session_id="s", turn=turn)[1] is not None
+            for turn in range(60)
+        ]
+        assert any(outcomes)
+        assert not all(outcomes)
+        rate = sum(outcomes) / len(outcomes)
+        assert 0.1 < rate < 0.6  # near the profile's word_finding_probability
+
+    def test_when_it_fires_it_inserts_exactly_one_grope(self) -> None:
+        # A turn known to fire for this session (searched, not assumed).
+        turn = next(
+            t
+            for t in range(200)
+            if inject_word_finding(self.REPLY, self.PROFILE, session_id="s", turn=t)[1] is not None
+        )
+        text, note = inject_word_finding(self.REPLY, self.PROFILE, session_id="s", turn=turn)
+
+        assert note is not None and note.startswith("word-finding: groped for ")
+        assert text.count("—") == 2  # one interjection, bracketed by two dashes
+        assert note.split("'")[1] in text  # the groped word is named and still there
+        # Nothing was deleted: excise the injected interjection and the reply is whole.
+        before, _, rest = text.partition("— ")
+        _, _, after = rest.partition(" — ")
+        assert before + after == self.REPLY
+
+    def test_it_never_stumbles_on_a_name_or_the_first_word(self) -> None:
+        """Anomia spares proper nouns and does not preface a sentence. Every word it
+        ever gropes for is a plain lowercase noun that began past the first letter."""
+        reply = "Maya and I drove to Vermont for the wedding that autumn."
+        groped = {
+            inject_word_finding(reply, self.PROFILE, session_id=f"s{i}", turn=t)[1]
+            for i in range(30)
+            for t in range(30)
+        }
+        words = {n.split("'")[1] for n in groped if n is not None}
+        assert "Maya" not in words and "Vermont" not in words  # names are safe
+        assert all(reply.index(w) > 0 for w in words)  # never the opening word
+
+    def test_a_reply_with_no_plain_noun_is_left_whole(self) -> None:
+        text, note = inject_word_finding("Yes. No. I did.", self.PROFILE, session_id="s", turn=3)
+        assert text == "Yes. No. I did."
+        assert note is None
+
+    def test_it_replays_identically(self) -> None:
+        first = inject_word_finding(self.REPLY, self.PROFILE, session_id="sess", turn=9)
+        again = inject_word_finding(self.REPLY, self.PROFILE, session_id="sess", turn=9)
+        assert first == again
 
 
 class TestContextRendering:

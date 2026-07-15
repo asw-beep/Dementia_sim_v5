@@ -23,6 +23,7 @@ import structlog
 from personasim.config import Settings
 from personasim.conversation.improvise import everyday_for, improvise
 from personasim.impairment import HEALTHY, CognitiveProfile, ImpairedRetrievalEngine
+from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.hold import fade_transcript
 from personasim.impairment.voice import render_now_impaired, voice_notes
 from personasim.llm.base import LLMClient
@@ -235,6 +236,15 @@ class Conversation:
                 ),
             )
         )
+
+        # Word-finding is performed on the reply, not asked of the model — the prompt
+        # seam could not deliver it. One groping pause, on one plain noun, hashed per
+        # turn so it fires intermittently and replays identically. Healthy is a no-op.
+        reply_text, groped = inject_word_finding(
+            reply_text, self._profile, session_id=self._session_id, turn=self._turn_number
+        )
+        if groped is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {groped}"})
 
         persona_message = Message(role=Role.PERSONA, content=reply_text)
         turn = self._working.complete_turn(persona_message, trace)

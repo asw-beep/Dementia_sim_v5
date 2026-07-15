@@ -196,18 +196,20 @@ was "confirm these are right, and fix what the drive actually broke."
 **Open issues from the drive** (stated, not hidden — the stage gate forbids a silent
 "known limitation"):
 
-1. **Word-finding does not manifest with this model, and cannot be forced without
-   breaking.** The fragment fired at its set rate but produced *zero* visible
-   groping across the drive. Strengthening it to demand a visible stumble backfired
-   into a robotic litany — *"I know I had a napkin, but I cannot say what it was made
-   of…"* repeated for every noun, which is worse than absent and reads as aphasia,
-   not CDR 1. The fragment now carries an explicit anti-litany guard (one word, never
-   a list) and is safe but subtle; `word_finding_probability` stays at 0.30 as the
-   aspirational rate. This is the CDR-1 behaviour the prompt seam cannot reliably
-   deliver on qwen3:14b, and it is the honest counterpart to 2A's delayed-recall
-   bound. A robust fix is a *mechanism*, not a number — most likely a light
-   post-generation pass that injects a single hesitation, which touches the LLM
-   boundary and needs its own design. **This is what stands between 2B and shippable.**
+1. **Word-finding — RESOLVED (post-generation injection).** The prompt seam could
+   not deliver it: the fragment produced *zero* visible groping across the drive, and
+   strengthening it to force a stumble backfired into a robotic litany — *"I know I
+   had a napkin, but I cannot say what it was made of…"* for every noun, which reads
+   as aphasia, not CDR 1. The fix is the mechanism this issue predicted: a light
+   post-generation pass (`impairment/disfluency.py`) that injects a single groping
+   hesitation into the reply the model already wrote — *"the teapot beside the — it's
+   on the tip of my tongue — window"*. It fires at `word_finding_probability`, hashed
+   per (session, turn) so a session replays identically; it stumbles on exactly one
+   plain lowercase noun (never a name, never the opening word, so "Maya" and "Vermont"
+   are safe); and it adds a **disfluency, not a fact** — formation never sees the
+   reply, so the closed cast is untouched. The unreliable prompt fragment is gone; the
+   profile field now feeds the injector. This was the last thing standing between 2B
+   and shippable.
 2. **Delayed-recall intrusion — RESOLVED (lightweight gap guard).** With the list
    faded, the model filled the gaps from nearby transcript — "apple, slice, lemon",
    the last two lifted from the breakfast answer. The fix is a single prompt fragment
