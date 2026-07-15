@@ -1,9 +1,11 @@
-"""Sprint 2A — the CDR 0.5 impairment layer.
+"""The CDR impairment layer — Sprint 2A (CDR 0.5) and Sprint 2B (CDR 1).
 
-Clinical ground truth: docs/disease_profiles/CDR05.md. Design:
-docs/design/sprint1_cdr05.md. The gate's whole thesis is tested here: a recent
-memory is reached only when the question cues it strongly enough, a remote memory
-is always reached, and nothing — under any profile — is ever invented.
+Clinical ground truth: docs/disease_profiles/CDR05.md and CDR1.md. Design:
+docs/design/sprint1_cdr05.md and sprint2_cdr1.md. The gate's whole thesis is tested
+here: a recent memory is reached only when the question cues it strongly enough, a
+remote memory is always reached, and nothing — under any profile — is ever invented.
+CDR 1 is the same mechanisms turned up a rung, plus one new orientation level
+(time "mistaken", not merely "uncertain"); the tests assert that relationship.
 """
 
 from __future__ import annotations
@@ -24,9 +26,10 @@ from personasim.impairment import (
     apply_recall_gate,
     load_profile,
 )
-from personasim.impairment.profile import RecallGate
+from personasim.impairment.hold import ELISION, fade_transcript
+from personasim.impairment.profile import RecallGate, WorkingMemoryHold
 from personasim.impairment.recall import _encoding
-from personasim.impairment.voice import render_now_uncertain, voice_notes
+from personasim.impairment.voice import render_now_impaired, voice_notes
 from personasim.llm.base import ChatMessage
 from personasim.llm.context_builder import build_memory_context
 from personasim.models import (
@@ -36,6 +39,7 @@ from personasim.models import (
     RelationshipMemory,
     SemanticMemory,
 )
+from personasim.models.conversation import Message, Role, Turn
 from personasim.models.trace import (
     MemoryTrace,
     RetrievalIntent,
@@ -52,7 +56,16 @@ CDR05 = CognitiveProfile(
     name="cdr05-test",
     recall=RecallGate(recent_window_days=90, withhold_below=0.45, gist_below=0.85, cue_weight=0.55),
     insight=True,
-    working_memory_turns=5,
+    hold=WorkingMemoryHold(crisp_turns=2, fade_turns=8),
+)
+
+CDR1 = CognitiveProfile(
+    name="cdr1-test",
+    recall=RecallGate(
+        recent_window_days=180, withhold_below=0.65, gist_below=1.10, cue_weight=0.45
+    ),
+    insight=True,
+    hold=WorkingMemoryHold(crisp_turns=1, fade_turns=5),
 )
 
 NOW = datetime(2026, 7, 14, 17, 0, tzinfo=UTC)
@@ -149,7 +162,30 @@ class TestProfiles:
         assert cdr05.insight
         assert cdr05.orientation.day_and_date == "uncertain"
         assert cdr05.speech.word_finding_probability > 0
-        assert cdr05.working_memory_turns is not None
+        assert cdr05.hold.fades
+        assert not healthy.hold.fades
+        assert healthy.hold.capacity is None
+
+    def test_cdr1_is_a_rung_past_cdr05(self) -> None:
+        # Severity is data: CDR 1 is the same mechanisms turned up. Every knob that
+        # governs how impaired she is moves in the more-impaired direction, and the
+        # one qualitative jump — time orientation from "uncertain" to "mistaken" —
+        # is a new level, not a new code path.
+        cdr05 = load_profile(PROFILES / "cdr05.yaml")
+        cdr1 = load_profile(PROFILES / "cdr1.yaml")
+
+        assert cdr1.gates_recall
+        assert cdr1.is_impaired
+        assert cdr1.orientation.day_and_date == "mistaken"
+        # Recent memory: a wider window catches more, and the ladder sits higher.
+        assert cdr1.recall.recent_window_days > cdr05.recall.recent_window_days
+        assert cdr1.recall.withhold_below > cdr05.recall.withhold_below
+        assert cdr1.recall.gist_below > cdr05.recall.gist_below
+        # Word-finding is "often" now, not "occasionally".
+        assert cdr1.speech.word_finding_probability > cdr05.speech.word_finding_probability
+        # Working memory frays sooner: the crisp span narrows, the whole window shrinks.
+        assert cdr1.hold.crisp_turns < cdr05.hold.crisp_turns
+        assert (cdr1.hold.capacity or 0) < (cdr05.hold.capacity or 0)
 
     def test_thresholds_must_be_ordered(self) -> None:
         with pytest.raises(ValueError, match="gist_below"):
@@ -456,7 +492,13 @@ class TestClinicalRates:
     def _fates(self, cue: float, count: int = 400) -> dict[str, int]:
         tally = {"withheld": 0, "gist": 0, "hedged": 0}
         for index in range(count):
-            memory = recent_episode()
+            # A *deterministic* id per sample, not a fresh uuid4: encoding is hashed
+            # from (session, memory id), so a random id makes the measured rate drift
+            # run to run and flake against the band. Reproducible-by-construction is
+            # the whole point of the gate; the rate test must honour it too.
+            memory = recent_episode().model_copy(
+                update={"id": memory_id_for("rate", f"{cue}-{index}")}
+            )
             gated = apply_recall_gate(
                 trace_of(retrieved(memory, cue=cue)),
                 CDR05,
@@ -487,6 +529,31 @@ class TestClinicalRates:
         assert 0.35 <= tally["withheld"] / 400 <= 0.55
         assert tally["gist"] > 0
 
+    def test_cdr1_blocks_recent_recall_harder_than_cdr05(self) -> None:
+        """The roadmap's 2B line, measured: at CDR 1 a recent memory is withheld or
+        reduced to gist more often than at CDR 0.5, across the same questions. Same
+        gate, higher rungs — retrieval more often blocked, without a new branch."""
+
+        def blocked_rate(profile: CognitiveProfile, cue: float, count: int = 400) -> float:
+            reduced = 0
+            for index in range(count):
+                memory = recent_episode()
+                gated = apply_recall_gate(
+                    trace_of(retrieved(memory, cue=cue)),
+                    profile,
+                    _Source(memory),
+                    session_id=f"s{index}",
+                    now=NOW,
+                )
+                # "Blocked" = did not come back whole: withheld outright, or gist-only.
+                if gated.withheld or (gated.retrieved and gated.retrieved[0].detail_withheld):
+                    reduced += 1
+            return reduced / count
+
+        # A vague question, and a direct one: CDR 1 is worse on both.
+        assert blocked_rate(CDR1, cue=0.0) > blocked_rate(CDR05, cue=0.0)
+        assert blocked_rate(CDR1, cue=1.0) > blocked_rate(CDR05, cue=1.0)
+
     def test_remote_memory_stays_above_95_percent(self) -> None:
         """>95% accuracy on autobiography, per the acceptance criteria. It is 100%,
         because remote memory is not gated at all — a structural guarantee, not a
@@ -515,7 +582,7 @@ class TestVoice:
     def test_healthy_says_nothing_at_all(self) -> None:
         gone = trace_of()
         assert voice_notes(HEALTHY, turn=4, user_message="a, b, c, d, and e?", trace=gone) == ""
-        assert render_now_uncertain(HEALTHY) is None
+        assert render_now_impaired(HEALTHY) is None
 
     def test_word_finding_fires_on_some_turns_and_not_others(self) -> None:
         """Not a metronome. Every 4th turn read as one, and — worse — the old soft
@@ -579,14 +646,40 @@ class TestVoice:
         assert "slip away" in spoken
         assert silent == ""
 
+    def test_a_faded_turn_warns_her_not_to_fill_the_gaps(self) -> None:
+        # The lightweight intrusion guard: only when the transcript actually faded is
+        # she told the '…' gaps are gone and not to guess across them. This is the
+        # counter to "apple, slice, lemon" — the second two lifted from a later turn.
+        empty = trace_of()
+        with_fade = voice_notes(CDR1, turn=1, user_message="hi", trace=empty, faded=True)
+        without = voice_notes(CDR1, turn=1, user_message="hi", trace=empty, faded=False)
+
+        assert "gone from me" in with_fade
+        assert "gone from me" not in without
+        # Healthy never fades, so the guard cannot appear even if `faded` is forced.
+        assert "gone from me" not in voice_notes(
+            HEALTHY, turn=1, user_message="hi", trace=empty, faded=True
+        )
+
     def test_the_uncertain_clock_still_tells_the_truth(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
-        text = render_now_uncertain(profile, when=datetime(2026, 7, 14, 17, 5))
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "July 2026" in text
         assert "Tuesday" in text  # the real day is in the text; her hold on it is not
         assert "could not swear" in text
+
+    def test_the_mistaken_clock_withholds_the_weekday_it_can_no_longer_hold(self) -> None:
+        # CDR 1: the exact day is *not* handed to her, so she cannot read it off — she
+        # is disoriented in time, not fed a false fact. The frame she is given is real.
+        profile = load_profile(PROFILES / "cdr1.yaml")
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+
+        assert text is not None
+        assert "July 2026" in text  # the frame is still true
+        assert "Tuesday" not in text  # but the weekday is withheld — she has lost it
+        assert "come loose" in text
 
     def test_a_session_replays_its_speech_identically(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
@@ -600,6 +693,135 @@ class TestVoice:
         )
 
         assert first == again
+
+
+def _exchange(user: str, persona: str = "Mm, yes.") -> Turn:
+    return Turn(
+        user_message=Message(role=Role.USER, content=user),
+        persona_message=Message(role=Role.PERSONA, content=persona),
+        trace=trace_of(),
+    )
+
+
+def _survivors(text: str, words: Sequence[str]) -> int:
+    """How many of `words` are still standing in a possibly-faded message."""
+    tokens = {token.strip(",.;:!?").lower() for token in text.split()}
+    return sum(1 for word in words if word.lower() in tokens)
+
+
+WORDS = ("apple", "train", "blue")
+
+
+def _window_with_old(first: str, age: int) -> list[Turn]:
+    """A window whose oldest exchange is `first`, with `age` newer exchanges in
+    front of it — so `first` sits at exactly `age` turns back."""
+    return [_exchange(first), *(_exchange("we talked of other things") for _ in range(age))]
+
+
+def _fade_old(first: str, age: int, session_id: str) -> tuple[str, str | None]:
+    """Fade a window whose oldest turn is `first`, `age` turns back. Return that
+    turn's (faded user text, trace note)."""
+    turns = _window_with_old(first, age)
+    messages, note = fade_transcript(turns, len(turns), profile=CDR05, session_id=session_id)
+    return messages[0].content, note
+
+
+def _recall_at_age(age: int, session_id: str) -> int:
+    """Register the three words, ask for them `age` turns later, count survivors."""
+    faded, _ = _fade_old(" ".join(WORDS), age, session_id)
+    return _survivors(faded, WORDS)
+
+
+class TestWorkingMemoryHold:
+    """The delayed-recall probe: 2 of 3, or 1 of 3 with a cue — never a blank.
+
+    A hard window could only ever read the words back verbatim or lose them whole.
+    The fade is what puts CDR 0.5 in between: registration intact, retention frayed,
+    partially. Which words go is hashed, so these assertions are reproducible.
+    """
+
+    def test_healthy_hands_the_transcript_back_untouched(self) -> None:
+        turns = [_exchange("remember apple train blue"), _exchange("lovely weather")]
+        messages, note = fade_transcript(turns, turns_seen=2, profile=HEALTHY, session_id="s")
+
+        assert note is None
+        assert [m.content for m in messages] == [
+            "remember apple train blue",
+            "Mm, yes.",
+            "lovely weather",
+            "Mm, yes.",
+        ]
+
+    def test_the_most_recent_exchanges_are_held_whole(self) -> None:
+        """Immediate registration is intact at CDR 0.5: the crisp span never fades,
+        so a word asked for straight back always comes back."""
+        # Age 0 (the only completed turn) and age 1 (older than a filler) both sit
+        # inside the two crisp turns and are handed over verbatim.
+        assert _recall_at_age(0, "s") == 3
+        assert _recall_at_age(1, "s") == 3
+
+        turns = [_exchange(" ".join(WORDS)), _exchange("and how are you keeping?")]
+        messages, note = fade_transcript(turns, turns_seen=2, profile=CDR05, session_id="s")
+        assert messages[0].content == " ".join(WORDS)  # age 1: still crisp
+        assert note is None
+
+    def test_an_old_three_word_list_comes_back_in_part(self) -> None:
+        """The clinical signature, across many sessions: partial recall is the norm,
+        a total blank is the minority, and a perfect score after the delay is too."""
+        counts = [_recall_at_age(6, f"s{i}") for i in range(300)]
+
+        partial = sum(1 for c in counts if c in (1, 2))
+        blank = sum(1 for c in counts if c == 0)
+        perfect = sum(1 for c in counts if c == 3)
+
+        assert partial > blank and partial > perfect  # 2-of-3 / 1-of-3 dominates
+        assert 0 < blank < len(counts) * 0.45  # she can lose them all — but rarely
+        assert 0 < perfect < len(counts) * 0.45  # and can hold them all — rarely
+
+    def test_the_further_back_it_was_the_more_is_lost(self) -> None:
+        """More delay, more forgotten: survival averaged over many sessions falls as
+        the list recedes. This is the gradient a hard window could not produce."""
+        near = sum(_recall_at_age(3, f"s{i}") for i in range(300))
+        far = sum(_recall_at_age(9, f"s{i}") for i in range(300))
+        assert near > far
+
+    def test_the_fade_is_hashed_not_rolled(self) -> None:
+        """A replayed session frays identically — the reproducibility a validation
+        cannot do without, and the reason `random` is banned from this package."""
+        turns = _window_with_old("the quick brown fox jumped clean over the lazy dog", age=7)
+        first = fade_transcript(turns, len(turns), profile=CDR05, session_id="sess")
+        again = fade_transcript(turns, len(turns), profile=CDR05, session_id="sess")
+
+        assert [m.content for m in first[0]] == [m.content for m in again[0]]
+        assert first[1] == again[1]
+
+    def test_a_fade_leaves_a_note_that_explains_the_lapse(self) -> None:
+        """A delayed-recall failure has no retrieved memory to point at, so the note
+        is what keeps it from being an unexplained gap in the trace."""
+        _, note = _fade_old(
+            "the quick brown fox jumped clean over the lazy dog", age=8, session_id="s"
+        )
+
+        assert note is not None
+        assert "slipped" in note
+
+    def test_a_faded_word_becomes_a_gap_never_another_word(self) -> None:
+        """She loses the particulars; she never acquires false ones. A wholly faded
+        message is still something said — a single gap, never nothing."""
+        allowed = {ELISION, "gone", "we", "talked", "of", "other", "things", "Mm,", "yes."}
+        seen_gap = False
+        for i in range(80):
+            turns = _window_with_old("gone", age=9)
+            messages, _ = fade_transcript(turns, len(turns), profile=CDR05, session_id=f"x{i}")
+            for message in messages:
+                assert message.content  # never empty (a gap is still content)
+                for token in message.content.split():
+                    # Every token is either an original word or the gap marker —
+                    # nothing invented has been slipped in.
+                    assert token in allowed
+                if ELISION in message.content:
+                    seen_gap = True
+        assert seen_gap  # the fade does bite at this depth
 
 
 class TestContextRendering:
@@ -825,34 +1047,52 @@ class TestImpairedConversation:
         else:
             assert any(g.memory_id == first.formed[0].id for g in again.trace.withheld)
 
-    def test_a_short_working_memory_makes_delayed_recall_mean_something(
+    def test_delayed_recall_frays_partially_rather_than_to_a_blank(
         self, saved: Persona, database: Database
     ) -> None:
-        """Three words, then ten minutes of other conversation.
+        """Three words, then several turns of other conversation — the correction a
+        clinical review forced.
 
-        Under the healthy 12-turn window the words sat *verbatim in the prompt* six
-        turns later and she read them straight back — a perfect score on the most
-        diagnostic question in the CDR interview, produced by a transcript rather
-        than by memory. The window is what makes the probe real.
+        A hard short window had only two answers to "what were the three words?":
+        read them back verbatim, or — once the turn had scrolled clean out of the
+        prompt — a flat blank, "I don't remember any words". A blank is a heavier
+        deficit than CDR 0.5, where registration is intact and it is *retention* that
+        frays, partially: 2 of 3, or 1 of 3. The transcript now fades instead of
+        truncating, so the probe lands in that middle.
+
+        Which words go is hashed per session, and the session id is fresh each
+        conversation, so this asks across many and checks the shape of the outcome —
+        the same way the clinical-rate tests do.
         """
-        llm = ScriptedLLM("I'll remember them.")
-        with impaired(saved, llm, database) as chat:
-            chat.send("Remember these three words: apple, train, blue.")
-            for filler in (
-                "Tell me about your wedding.",
-                "And your father?",
-                "Your brother?",
-                "What do you make of the weather?",
-                "Do you still draw maps?",
-            ):
-                chat.send(filler)
+        fillers = (
+            "Lovely weather today.",
+            "Have you been outside at all?",
+            "The garden is looking well.",
+            "Did you sleep alright?",
+            "Anything worth hearing on the wireless?",
+            "Shall I put the kettle on?",
+        )
+        counts = []
+        for _ in range(40):
+            llm = ScriptedLLM("I'll remember them.")
+            with impaired(saved, llm, database) as chat:
+                chat.send("Remember these three words: apple, train, blue.")
+                for filler in fillers:
+                    chat.send(filler)
+                probe = chat.send("What were those three words?")
 
-            probe = chat.send("What were those three words?")
+            assert probe.formed == []  # nothing is ever invented to fill the gap
+            # The oldest turn in the last prompt is the registration line, now faded.
+            registration = llm.prompts[-1][1].content
+            counts.append(_survivors(registration, WORDS))
 
-        prompt = llm.prompts[-1]
-        transcript = " ".join(message.content for message in prompt)
-        assert "apple" not in transcript.lower()  # genuinely gone, not merely hedged
-        assert probe.formed == []  # and nothing was invented to fill the gap
+        partial = sum(1 for c in counts if c in (1, 2))
+        blank = sum(1 for c in counts if c == 0)
+        perfect = sum(1 for c in counts if c == 3)
+
+        assert partial > blank  # the middle is where CDR 0.5 lives
+        assert partial > perfect  # not read straight off a card either
+        assert blank < len(counts) * 0.5  # a clean blank is the exception, not the rule
 
     def test_her_own_life_is_reachable_under_the_profile(
         self, saved: Persona, database: Database

@@ -102,7 +102,16 @@ class TestTheServedProfile:
         assert impaired_client.get("/api/profile").json()["name"] == "cdr05"
 
     def test_an_impaired_session_actually_gates_recall(self, impaired_client: TestClient) -> None:
-        """Not merely reported — the served conversation is genuinely impaired."""
+        """Not merely reported — the served conversation is genuinely impaired.
+
+        A just-disclosed fact, asked straight back, is *never recalled crisply* at
+        CDR 0.5: depending on how well this session laid it down, it comes back
+        hedged, in outline, or not at all — but never with the full confidence the
+        healthy persona returns it with (`test_a_healthy_session_withholds_nothing`).
+        That "never crisp" is the deterministic invariant; *which* of withheld or
+        hedged it lands on is the encoding hash's business, and asserting one
+        particular outcome made this test a coin toss that failed two runs in three.
+        """
         session = open_session(impaired_client)
 
         told = impaired_client.post(
@@ -115,8 +124,18 @@ class TestTheServedProfile:
             json={"text": "how are things at home these days?"},
         ).json()
 
-        withheld = asked["trace"]["withheld"]
-        assert any("Portland" in gone["summary"] for gone in withheld)
+        trace = asked["trace"]
+        withheld = any("Portland" in gone["summary"] for gone in trace["withheld"])
+        hedged = any(
+            "Portland" in got["summary"] and (got["hedged"] or got["detail_withheld"])
+            for got in trace["retrieved"]
+        )
+        crisp = any(
+            "Portland" in got["summary"] and not got["hedged"] and not got["detail_withheld"]
+            for got in trace["retrieved"]
+        )
+        assert withheld or hedged  # impaired: it does not come back like her own name
+        assert not crisp  # and never, in any session, at full confidence
 
     def test_a_healthy_session_withholds_nothing(self, client: TestClient) -> None:
         session = open_session(client)

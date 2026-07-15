@@ -23,7 +23,8 @@ import structlog
 from personasim.config import Settings
 from personasim.conversation.improvise import everyday_for, improvise
 from personasim.impairment import HEALTHY, CognitiveProfile, ImpairedRetrievalEngine
-from personasim.impairment.voice import render_now_uncertain, voice_notes
+from personasim.impairment.hold import fade_transcript
+from personasim.impairment.voice import render_now_impaired, voice_notes
 from personasim.llm.base import LLMClient
 from personasim.llm.context_builder import build_messages
 from personasim.memory.formation import ConsolidationPlan, consolidate, form_memories
@@ -96,14 +97,12 @@ class Conversation:
         # three, without a database round trip and without a second source of truth.
         self._source = PersonaMemorySource(persona)
 
-        # How much of the live conversation she can hold. A capacity bound, not a
-        # forgetting model — nothing is lost from long-term memory — but it is what
-        # decides whether a delayed-recall probe means anything: three words given
-        # six turns ago sit *verbatim in the prompt* under the healthy window, and
-        # she reads them straight back. A perfect score on the single most
-        # diagnostic question in the interview, produced by a transcript rather than
-        # by memory.
-        capacity = self._profile.working_memory_turns or settings.working_memory_turns
+        # How much of the live conversation she can hold. The healthy window is a
+        # plain capacity bound; an impaired profile widens it to make room for the
+        # fade (`impairment.hold`) that frays older turns word by word, which is
+        # what turns a delayed-recall probe from free — three words read verbatim
+        # out of the prompt — into the graded, partial thing a clinician looks for.
+        capacity = self._profile.hold.capacity or settings.working_memory_turns
         self._working = WorkingMemory(persona.id, capacity=capacity)
         self._turn_number = 0
 
@@ -203,23 +202,36 @@ class Conversation:
         self._working.set_topic(_topic_of(trace))
 
         # The windowed transcript, which excludes the message being answered — it
-        # is the last thing in the prompt, not part of the history. Under the
-        # healthy profile the two impairment hooks resolve to None and "", and the
-        # prompt is byte-for-byte the Phase 1 prompt.
+        # is the last thing in the prompt, not part of the history. Under an
+        # impaired hold, older turns are faded word by word before they reach the
+        # prompt; the note explains, in the trace, a delayed-recall failure that
+        # otherwise has no retrieved memory to point at. Under the healthy profile
+        # the fade is a no-op and every hook resolves to None/"", so the prompt is
+        # byte-for-byte the Phase 1 prompt.
+        history, fade_note = fade_transcript(
+            self._working.recent_turns(),
+            self._working.turns_seen,
+            self._profile,
+            self._session_id,
+        )
+        if fade_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {fade_note}"})
+
         reply_text = self._llm.generate(
             build_messages(
                 self._persona.identity,
                 trace,
                 self._source,
                 text,
-                history=self._working.transcript(),
-                now_text=render_now_uncertain(self._profile),
+                history=history,
+                now_text=render_now_impaired(self._profile),
                 voice_notes=voice_notes(
                     self._profile,
                     turn=self._turn_number,
                     user_message=text,
                     trace=trace,
                     session_id=self._session_id,
+                    faded=fade_note is not None,
                 ),
             )
         )

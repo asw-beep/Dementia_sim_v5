@@ -260,14 +260,20 @@ def render_speaker(name: str) -> str:
     cartographer" — reading the caregiver's "I" as her own while holding the
     caregiver's job in the context she had been handed.
 
-    Note what this does *not* say. Told she was speaking to "your caregiver, the
-    person who looks after you", the persona inverted the roles outright: she
-    announced "I am your caregiver", gave away her own home as the caregiver's, and
-    claimed the caregiver's city as hers. A healthy woman of thirty-eight does not
-    have someone who looks after her, and handed that contradiction the model
-    resolved it by swapping the two of them. `caregiver` is the right word for the
-    domain and the wrong word to put in her mouth. She is simply told who is
-    speaking, in terms that do not fight her identity.
+    Note what this does *not* say — and why the wording is load-bearing. Told she was
+    speaking to "your caregiver, the person who looks after you", an *early, healthy*
+    persona inverted the roles outright: she announced "I am your caregiver", gave
+    away her own home as the caregiver's, and claimed the caregiver's city as hers.
+    The prompt still says only that her memories *call them* 'my caregiver', never
+    that they look after her — but the reason has moved. From Phase 2 on, every
+    persona is a patient, so being looked after is no longer a contradiction and she
+    may freely acknowledge a caregiver (the drive's "you are my caregiver" is correct,
+    not a leak). What the neutral phrasing still buys is the thing that actually broke:
+    it does not invite her to *inhabit* the caregiver's side of the "I/you" split. The
+    guarantee the prompt enforces is directional — she must never speak as the
+    caregiver, claim their home, or hand over her own — and that holds for a patient
+    exactly as it did for a healthy woman. So the wording is unchanged; only the
+    rationale is now "prevent role inversion", not "she has no one who looks after her".
     """
     return (
         f"You are speaking with someone. They are the only other person here, and "

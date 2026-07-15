@@ -548,9 +548,18 @@ difference between "healthy" and "questionable".
 is the most diagnostic question in the CDR interview, and she scored 3/3 — by
 reading them *verbatim out of the prompt*, six turns later, through the healthy
 12-turn transcript window. Holding the thread of the current exchange is preserved
-at CDR 0.5; holding it across ten minutes of other conversation is not. The window
-is now a profile parameter (`working_memory_turns: 5`), which is what turns that
-probe from free into real.
+at CDR 0.5; holding it across ten minutes of other conversation is not.
+
+The first attempt simply shortened the window (`working_memory_turns: 5`) so the
+turn scrolled out — but that traded 3/3 for **0/3**, "I don't remember any words",
+and a second review was right that a flat blank is a heavier deficit than CDR 0.5.
+So the window no longer truncates; it **fades** (`impairment/hold.py`,
+`hold: {crisp_turns, fade_turns}`). The most recent exchanges are held whole, older
+ones lose words one at a time — more the further back, hashed so a session replays
+identically — and the probe lands where a clinician looks for it: 3/3 at a short
+delay, 2/3 and then 1/3 as it grows. A word faded to nothing stays gone (she
+declines a cue rather than confabulate it); recovering a *fully*-lost item on a cue
+would need per-item episodic encoding, which is deferred and no longer blocks 2A.
 
 **4. Word-finding was a suggestion, and the model declined it.** The fragment was
 present on schedule and produced *zero* hesitation in twenty turns — a soft note

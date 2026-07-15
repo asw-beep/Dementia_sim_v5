@@ -24,7 +24,7 @@ from typing import Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Sureness = Literal["confident", "uncertain"]
+Sureness = Literal["confident", "uncertain", "mistaken"]
 
 
 class ProfileError(Exception):
@@ -85,14 +85,73 @@ class RecallGate(BaseModel):
 class Orientation(BaseModel):
     """What she is sure of about time and place. Consumed by `impairment.voice`.
 
-    Only the weekday and exact date can be uncertain at this severity — month,
-    year, place, and the person she is speaking with stay confident, and gain
-    fields only in the sprint that degrades them.
+    One axis, three severities — and the axis is *time*. Month, year, place, and the
+    person she is speaking with stay confident here; they gain fields only in the
+    sprint that degrades them (poor orientation to place is CDR 2, not CDR 1).
+
+    - ``confident`` — healthy. The clock is exactly what `render_now` tells it.
+    - ``uncertain`` — CDR 0.5. She knows the weekday is slippery and second-guesses
+      herself, but the truth is still handed to her and she lands on the right day,
+      or near it. Confidence degraded, fact intact.
+    - ``mistaken`` — CDR 1. Time has come loose. The exact weekday and date are
+      *withheld* from the clock she is handed, so she cannot read them off: she
+      offers the day she believes it is — sometimes wrong — or admits she has lost
+      track, and does **not** perform the tidy self-correction that arrives at the
+      right answer. This is disorientation, not a fabricated fact: nothing false is
+      injected, and orientation is stored nowhere, so no memory is touched.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     day_and_date: Sureness = "confident"
+
+
+class WorkingMemoryHold(BaseModel):
+    """How the live conversation fades in RAM. Consumed by `impairment.hold`.
+
+    This is what makes a *delayed*-recall probe mean anything — "remember these
+    three words… now, what were they?", the single most diagnostic question in the
+    CDR interview. A hard window could only ever answer it two ways: the three
+    words sat *verbatim in the prompt* and she read them straight back, or the turn
+    had scrolled out and she had **nothing** — "I don't remember any words". Both
+    are wrong for CDR 0.5, where immediate registration is intact and it is
+    *retention across a delay* that frays. A clinician looks for the pattern in
+    between: *2 of 3, or 1 of 3 with a nudge from a cue* — early Alzheimer's, drawn
+    to the life.
+
+    So retention is graded, not a cliff. The last `crisp_turns` exchanges are held
+    whole — immediate registration, and the thread of what is being said right now,
+    are preserved. Older exchanges fade *word by word*, more of them lost the
+    further back they were, until at `crisp_turns + fade_turns` the exchange is gone
+    from RAM entirely. A three-word list given a few turns ago comes back in part;
+    a cue ("it was a colour") is a fresh, unfaded turn that helps her land the rest.
+
+    Which words fade is hashed, never rolled (see `impairment.hold`), so a session
+    replays identically. Nothing here touches long-term memory: a fact worth keeping
+    left the transcript through memory formation long ago, and is gated — if at all —
+    by the recall ladder, not by this.
+
+    Both zero (the healthy default) is a no-op: no fade, and the window is left at
+    `settings.working_memory_turns` exactly as Phase 1 set it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: The most recent exchanges, held verbatim. Immediate registration is intact
+    #: at CDR 0.5; this is the span over which it stays that way.
+    crisp_turns: int = Field(default=0, ge=0)
+    #: Exchanges older than the crisp span fade progressively over this many turns —
+    #: more lost the further back — and beyond it are gone from RAM.
+    fade_turns: int = Field(default=0, ge=0)
+
+    @property
+    def fades(self) -> bool:
+        return self.crisp_turns > 0 or self.fade_turns > 0
+
+    @property
+    def capacity(self) -> int | None:
+        """Turns to keep in RAM, or None to leave the healthy window alone."""
+        return self.crisp_turns + self.fade_turns if self.fades else None
 
 
 class Speech(BaseModel):
@@ -129,16 +188,11 @@ class CognitiveProfile(BaseModel):
     #: so at the moment a memory fails her. A clinical feature, not a leak.
     insight: bool = False
 
-    #: How many turns of the live conversation she can hold. `None` leaves the
-    #: healthy window (`settings.working_memory_turns`) alone.
-    #:
-    #: This is what makes a delayed-recall probe mean anything. Three words given
-    #: at turn three and asked for at turn nine were sitting *verbatim in the
-    #: prompt*, so she read them straight back — a perfect score on the single most
-    #: diagnostic question in the CDR interview, produced by a transcript window
-    #: rather than by memory. Shortening the window is what turns that probe from
-    #: free into real.
-    working_memory_turns: int | None = Field(default=None, gt=0)
+    #: How the live conversation fades in RAM. The healthy default holds nothing
+    #: back; a profile that sets it turns the delayed-recall probe from free (the
+    #: words sit verbatim in the prompt) into real (they fade, and come back in
+    #: part). See `WorkingMemoryHold`.
+    hold: WorkingMemoryHold = WorkingMemoryHold()
 
     @property
     def gates_recall(self) -> bool:
@@ -150,7 +204,7 @@ class CognitiveProfile(BaseModel):
         return (
             self.gates_recall
             or self.insight
-            or self.working_memory_turns is not None
+            or self.hold.fades
             or self.orientation.day_and_date != "confident"
             or self.speech.word_finding_probability > 0
         )

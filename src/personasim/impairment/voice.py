@@ -1,6 +1,6 @@
 """Speech-level difficulty: the behaviours that never touch memory.
 
-Word-finding, losing the thread of a long question, hazy orientation, and
+Word-finding, losing the thread of a long question, hazy or lost orientation, and
 preserved insight are properties of *speech*, so they live at the prompt seam —
 fragments added to the system prompt on the turns the profile calls for.
 
@@ -16,6 +16,15 @@ grope, describe the thing instead of naming it — rather than describing a tend
 and hoping. What it still must not do is hand over a phrase to recite: a sample
 line in a prompt becomes a catchphrase the model repeats every turn (seed authoring
 rule 2, learned the hard way). Describe the manner; never quote it.
+
+There is a ceiling here, found in the CDR 1 drive and worth not re-discovering: push
+this fragment harder — "the reader must SEE you lose it; if your reply is fluent you
+have failed" — and qwen3:14b does not grope, it produces a *litany*, "I know I have a
+table but cannot say what it is made of" for every noun in the reply, which reads as
+aphasia and is worse than absent. So the fragment carries an explicit anti-litany
+guard (one word, never a list) and word-finding stays subtle-or-absent by design
+rather than robotic. Making it reliably visible is a mechanism problem (a light
+post-generation pass), not a stronger prompt — see the 2B open issues in the roadmap.
 
 Insight fires at the moment of failure, not at random — she comments on her
 forgetfulness exactly when a memory has just been withheld, which is the same
@@ -43,8 +52,10 @@ WORD_FINDING = (
     "today. Grope for it in the open: break off, describe the thing by what it does "
     "or what it is for, try a word that is nearly right, and either arrive at it or "
     "settle for the description and move on.\n"
-    "Once, in one reply. Everything else you say stays as fluent as you have always "
-    "been. Do not remark on it afterwards and do not apologise for it."
+    "Do this for a SINGLE word and no more. The rest of the reply is complete and "
+    "fluent as you have always been — you are not uncertain about everything, you "
+    "have lost exactly one word. Do not list the things you cannot describe, and do "
+    "not remark on it or apologise afterwards."
 )
 
 LONG_QUESTION = (
@@ -66,6 +77,23 @@ INSIGHT = (
     "forgetful; never name a condition or a diagnosis."
 )
 
+# When the working-memory fade has left gaps in earlier turns, the model will, left
+# to itself, *fill* them from whatever is nearby — a three-word list came back as
+# "apple, slice, lemon", the last two lifted straight from the breakfast a few turns
+# on. That is an intrusion, and the whole layer forbids acquiring a word she does not
+# have. This is the lightweight counter: a single line, present only on a turn that
+# actually faded something, telling her the gaps are gone and not to guess across
+# them. It withholds; it never invents — the same rule as the fade itself.
+FADED_GAP = (
+    "Some of what was said earlier has slipped, and only part of it is still there in "
+    "your memory. If you are asked to recall something and can feel that a piece of it "
+    "has gone, say so plainly — 'that part has gone from me' — and give only what you "
+    "genuinely still hold. Do NOT guess at the missing pieces, and do NOT borrow a "
+    "word from something else said recently to fill the hole: a gap left open is the "
+    "truth; a gap filled with the wrong word is not. Do not write out any dots or "
+    "marks to stand for what is missing — just say, in your own words, that it is gone."
+)
+
 
 def voice_notes(
     profile: CognitiveProfile,
@@ -74,45 +102,85 @@ def voice_notes(
     user_message: str,
     trace: MemoryTrace,
     session_id: str = "",
+    faded: bool = False,
 ) -> str:
-    """Every fragment this turn calls for. Empty — and byte-free — when healthy."""
+    """Every fragment this turn calls for. Empty — and byte-free — when healthy.
+
+    ``faded`` is set by the caller when this turn's transcript actually lost words to
+    the working-memory fade; it adds the gap guard that stops her filling the holes
+    with intrusions. It stays false for a healthy profile, which never fades.
+    """
     parts = [
         _word_finding(profile, session_id, turn),
         _long_question(profile, session_id, turn, user_message),
         _insight(profile, trace),
+        FADED_GAP if faded and profile.hold.fades else "",
     ]
     return "\n\n".join(part for part in parts if part)
 
 
-def render_now_uncertain(profile: CognitiveProfile, when: datetime | None = None) -> str | None:
+def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None) -> str | None:
     """The clock, as she experiences it — or None to leave `render_now` alone.
 
-    The truth is still told: the real weekday is in the text, which is what lets her
-    second-guess herself and *land on the right day*, or near it. What is degraded is
-    her confidence in it, not the fact itself — the clock stays right by
-    construction, and her access to it is what wavers. No memory is touched.
+    Two severities, and the difference between them is what the clock hands her:
 
-    "Occasionally uncertain" needs no probability: the haze is constant, and it only
-    shows when someone asks — which is occasionally.
+    - ``uncertain`` (CDR 0.5) — the real weekday is still *in the text*, so she can
+      second-guess herself and land on the right day, or near it. Confidence
+      degraded, fact intact.
+    - ``mistaken`` (CDR 1) — the exact weekday and date are **withheld** from the
+      text, so she cannot read them off. She offers the day she believes it is,
+      sometimes wrong, or admits she has lost track, and does not self-correct to the
+      right answer she no longer has. This withholds a fact she has lost hold of; it
+      never injects a false one, and orientation is stored nowhere — no memory is
+      touched, exactly as at CDR 0.5.
+
+    Neither needs a probability: the haze is constant, and it only shows when someone
+    asks — which is occasionally.
     """
-    if profile.orientation.day_and_date == "confident":
+    sureness = profile.orientation.day_and_date
+    if sureness == "confident":
         return None
 
     now = when or datetime.now()
-    return (
+    frame = (
         f"Right now it is {now.strftime('%B %Y')}, and the time is "
         f"{now.strftime('%-I:%M %p').lower()}. You know the month, the year, the time "
         "of day, where you are, and who you are speaking with — with ordinary, easy "
         "confidence.\n"
-        f"But the exact day — that it is {now.strftime('%A the %-d')} — keeps slipping "
-        "from you lately. You believe that is right, and it probably is, but you could "
-        "not swear to it. Asked what day it is, answer as someone who has lost the "
-        "thread of the week: offer the day you think it is, perhaps waver and settle, "
-        "or admit you would want to glance at a calendar. Do not claim a certainty you "
-        "do not feel, and do not make a drama of it either — it is a small thing.\n"
+    )
+    coda = (
         "Say it as a person would, not as a clock would: asked the time, 'just gone "
         "five' — nobody recites the minute unless asked for it."
     )
+
+    if sureness == "uncertain":
+        middle = (
+            f"But the exact day — that it is {now.strftime('%A the %-d')} — keeps "
+            "slipping from you lately. You believe that is right, and it probably is, "
+            "but you could not swear to it. Asked what day it is, answer as someone "
+            "who has lost the thread of the week: offer the day you think it is, "
+            "perhaps waver and settle, or admit you would want to glance at a "
+            "calendar. Do not claim a certainty you do not feel, and do not make a "
+            "drama of it either — it is a small thing.\n"
+        )
+    else:  # mistaken
+        # The exact weekday and date are deliberately absent from the frame above:
+        # she has genuinely lost hold of them, so she cannot recite what she is not
+        # given. Nothing false is put in her mouth — she is disoriented, not lied to.
+        middle = (
+            "But time has come loose for you. The day of the week and the date "
+            "genuinely escape you now — not a flicker of doubt, as it once was, but a "
+            "real gap. Asked what day or date it is, answer as someone who has lost "
+            "track of time: give the day you believe it is, even when it turns out to "
+            "be wrong, or say plainly that you have lost the thread of it and could "
+            "not tell without a calendar. Do not arrive, tidily, at the right answer "
+            "— that certainty is no longer yours, and reaching it every time would "
+            "not be you as you are now. How long ago things happened — yesterday, "
+            "last week — blurs together too. It does not frighten you; it is simply "
+            "how things have become.\n"
+        )
+
+    return frame + middle + coda
 
 
 def _fires(probability: float, session_id: str, turn: int, what: str) -> bool:

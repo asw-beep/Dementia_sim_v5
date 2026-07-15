@@ -1,6 +1,7 @@
 # Roadmap
 
-**Status: Phase 1 complete, end to end. Phase 2 begins — Sprint 2A (CDR 0.5).**
+**Status: Phase 1 complete, end to end. Phase 2 underway — Sprint 2A (CDR 0.5)
+declared complete by the owner; Sprint 2B (CDR 1) is current.**
 
 Phase 1 was built waterfall, because a healthy persona is one thing and either
 works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
@@ -10,8 +11,8 @@ each independently shippable:
 | Phase | Sprint | Scope | Status |
 | ----- | ------ | ----- | ------ |
 | 1 | — | Healthy human persona | ✅ Complete |
-| 2 | 2A | **CDR 0.5 — very mild impairment** | ⬜ **Current** |
-| 2 | 2B | CDR 1 — mild | ⬜ |
+| 2 | 2A | CDR 0.5 — very mild impairment | ✅ Complete |
+| 2 | 2B | **CDR 1 — mild** | 🔶 **Current** (mechanics built, drive pending) |
 | 2 | 2C | CDR 2 — moderate | ⬜ |
 | 2 | 2D | CDR 3 — severe | ⬜ |
 | 3 | — | Assessment mode (caregiver predicts a CDR; system reveals and explains) | ⬜ |
@@ -60,7 +61,8 @@ name. A disease profile is a YAML file in `data/profiles/` holding parameters:
 ```
 healthy.yaml     retrieval: 1.00   orientation: 1.00   language: 1.00   working_memory: 1.00
 cdr05.yaml       retrieval: 0.90   orientation: 0.97   language: 0.95   working_memory: 0.90
-cdr1.yaml        …
+cdr1.yaml        retrieval: 0.70   orientation: 0.90   language: 0.85   working_memory: 0.70
+cdr2.yaml        …
 ```
 
 Those numbers are placeholders and will be tuned by driving the persona; the
@@ -84,7 +86,14 @@ the log — the trace records that it was found, that the profile suppressed it,
 why. An unexplained failure is indistinguishable from a bug, and Phase 3's report
 is built directly on this.
 
-### Sprint 2A — CDR 0.5 🔶 (current — mechanics built, drive pending)
+### Sprint 2A — CDR 0.5 ✅ (declared complete by the owner)
+
+> The mechanics below all shipped and `make check` is green. The adversarial drive
+> and a second clinical review were the last open items (see "The drive is not
+> finished" under Open issues); the owner has declared the sprint complete and
+> Sprint 2B is now current. The profile numbers in `cdr05.yaml` remain data and may
+> still be tuned if a later drive warrants it.
+
 
 Clinical spec: `docs/disease_profiles/CDR05.md` (ground truth). Design:
 `docs/design/sprint1_cdr05.md`. Built: `impairment/` (profile, recall gate, engine
@@ -130,11 +139,92 @@ yes, Sprint 2A ships. Finer clinical detail comes after that is true, not before
 - ✓ The healthy architecture is untouched (and `healthy.yaml` still behaves exactly
   as Phase 1 did — the regression suite proves it)
 
-### Sprint 2B — CDR 1 ⬜
+### Sprint 2B — CDR 1 🔶 (current — mechanics built, drive pending)
+
+Clinical spec: `docs/disease_profiles/CDR1.md` (ground truth). Design:
+`docs/design/sprint2_cdr1.md`. Built: `data/profiles/cdr1.yaml`, and one new
+mechanism — a third time-orientation level (`mistaken`) in `impairment/profile.py`
+and `impairment/voice.py`. All Phase 1 and 2A tests pass unmodified; +3 new tests
+pin CDR 1 as a strict rung past CDR 0.5 and the new `mistaken` clock. **Not done
+until the adversarial drive against a real model is clean and the numbers are
+tuned** — the same bar Sprint 2A was held to.
 
 Same architecture, different profile. Working memory weaker; orientation
 occasionally wrong; conversation continuity sometimes lost; retrieval more often
-blocked. **Nothing else changes.**
+blocked. **Nothing else changes** — and almost none of it is code: three of those
+four are `cdr1.yaml` numbers turned up a rung (recall window 90 → 180 days,
+thresholds and word-finding raised, cueing weaker, working-memory fade sharper).
+This is the first time the "severity is data, not code" bet is cashed.
+
+**The one new mechanism — orientation `mistaken`.** CDR 0.5's `uncertain` still
+handed her the true weekday, so she wavered and *landed on the right day*. CDR 1
+withholds the weekday and date from the clock she is given: she offers the day she
+believes it is — sometimes wrong — or admits she has lost track, and does not tidily
+self-correct to an answer she no longer has. This withholds a fact she has lost hold
+of; it never injects a false one, and orientation is stored nowhere, so no memory is
+touched. A wrong weekday is the defining CDR symptom, not the closed-cast
+confabulation the layer forbids.
+
+**Deliberately not built.** `CDR1.md` spans six clinical domains; four of them —
+judgment and problem solving, community affairs, home and hobbies, personal care —
+have no mechanism, and get none here: a profile field with no consumer is a lie in a
+config file, so those domains stay out of `cdr1.yaml` until a sprint gives each one a
+consumer, never a hardcoded branch. Repetition stays emergent from the fade, as at
+CDR 0.5, turned up by the numbers rather than by a new "repeat" instruction.
+
+**The one success criterion** (the mirror of 2A's): can a caregiver place her at
+*mild dementia* over a short interview, while still recognising the same woman? That
+is judged on a transcript, and the drive is where `cdr1.yaml` gets tuned.
+
+**Observed in the first structured drive (real model, qwen3:14b, 14 probes).** Most
+of the profile landed on the first pass, which is the "severity is data" bet paying
+off — the numbers moved and the behaviour moved with them, no new code:
+
+- *Time orientation (`mistaken`)* — exactly right. The day is lost ("I'd need to
+  check"), the date hedged while month and year stay confident and correct. No tidy
+  self-correction, no false fact injected.
+- *Recent recall* — clearly impaired: breakfast came back as gist ("the rest escapes
+  me") and, probed again seven turns later, drew a blank. Cue-dependent and
+  explained in the trace.
+- *Delayed recall* — **1 of 3**, the clinical signature of CDR 1.
+- *Remote memory* — excellent and in character. *Insight* — preserved and unforced.
+
+The memory and orientation **numbers were left unchanged**: the transcript
+validated them rather than faulting them. Tuning is not "change something"; here it
+was "confirm these are right, and fix what the drive actually broke."
+
+**Open issues from the drive** (stated, not hidden — the stage gate forbids a silent
+"known limitation"):
+
+1. **Word-finding does not manifest with this model, and cannot be forced without
+   breaking.** The fragment fired at its set rate but produced *zero* visible
+   groping across the drive. Strengthening it to demand a visible stumble backfired
+   into a robotic litany — *"I know I had a napkin, but I cannot say what it was made
+   of…"* repeated for every noun, which is worse than absent and reads as aphasia,
+   not CDR 1. The fragment now carries an explicit anti-litany guard (one word, never
+   a list) and is safe but subtle; `word_finding_probability` stays at 0.30 as the
+   aspirational rate. This is the CDR-1 behaviour the prompt seam cannot reliably
+   deliver on qwen3:14b, and it is the honest counterpart to 2A's delayed-recall
+   bound. A robust fix is a *mechanism*, not a number — most likely a light
+   post-generation pass that injects a single hesitation, which touches the LLM
+   boundary and needs its own design. **This is what stands between 2B and shippable.**
+2. **Delayed-recall intrusion — RESOLVED (lightweight gap guard).** With the list
+   faded, the model filled the gaps from nearby transcript — "apple, slice, lemon",
+   the last two lifted from the breakfast answer. The fix is a single prompt fragment
+   (`voice.FADED_GAP`), added only on a turn that actually faded something: it tells
+   her a slipped piece is gone, to give only what she still holds, and never to borrow
+   a nearby word to fill the hole. It withholds; it never invents — the same rule as
+   the fade itself. A first wording named the '…' glyph and the model echoed it
+   literally ("… lemon … bread …"); the shipped wording names no glyph and, re-driven,
+   produced the clean CDR-1 miss: *"Table. Penny. … I cannot recall the third."* — 2
+   of 3, the last declined, zero intrusion.
+
+**Resolved from the drive:** she called the caregiver *"my caregiver"*, which the
+healthy-persona *Who is in the room* rule appeared to forbid. Decision (owner): from
+Phase 2 every persona is a patient, so acknowledging a caregiver is correct, not a
+leak. The rule is now universalised — the prompt wording is unchanged, but its job is
+"never let her speak *as* the caregiver or hand over her own home", not "never tell
+her she is looked after". See `CLAUDE.md` *Who is in the room* and `render_speaker`.
 
 ### Sprint 2C — CDR 2 ⬜
 
@@ -695,21 +785,34 @@ deliberately violated, so none is vacuous.
 
 ## Open issues
 
-**Graded delayed recall — 2 of 3 words, not 0 of 3 — needs session memories.**
+**Graded delayed recall — 2 of 3 words, not 0 of 3 — RESOLVED (transcript fade).**
 The first clinical review scored the persona at "CDR ≈ 0–0.25, not 0.5", and the
 single most diagnostic probe was the three-word delayed recall: she scored 3/3 by
 reading the words *verbatim out of the prompt* six turns later, through the healthy
-transcript window. Shortening that window (`working_memory_turns: 5`) makes the
-probe fail honestly — but it fails **completely**, and a CDR 0.5 patient drops one
-word and keeps two.
+transcript window. Shortening that window (the old `working_memory_turns: 5`) made
+the probe fail honestly — but it failed **completely**, "I don't remember any
+words", and a second review flagged that a flat blank is a *heavier* deficit than
+CDR 0.5, where a patient drops one word and keeps two.
 
-Partial recall is not reachable while the words are free text in a transcript: they
-are one blob, not three memories with three encodings. The principled fix is to
-**encode what is said in a session as episodic memory**, at which point the recall
-gate already in place applies to each item and graded, cue-responsive partial recall
-falls out of the mechanism rather than being simulated on top of it. That is a
-change to memory *formation* — Phase 1 core — so it needs its own design and its own
-sprint. **It is the strongest candidate for Sprint 2B**, ahead of CDR 1.
+The original plan here was to **encode what is said in a session as episodic
+memory**, so the recall gate would apply per item — but that is a change to Phase 1
+*formation*, and it turned out to be unnecessary. The lighter fix, shipped in
+`impairment/hold.py`, keeps the words as free text and **fades the transcript word
+by word** at the prompt seam instead of truncating it: the last `crisp_turns`
+exchanges are held whole (immediate registration intact), older exchanges lose words
+progressively (`sha256`-hashed, so a session replays identically), and beyond
+`crisp_turns + fade_turns` the exchange is gone. Partial recall falls out — 3/3 at a
+short delay, 2/3 and then 1/3 as the delay grows — with Phase 1 formation untouched
+and the closed-cast rule intact.
+
+One honest bound, recorded rather than hidden: **cued recovery of a word that has
+faded *completely* is not reachable** and must not be. The reviewer's "*it was a
+colour → oh yes, Blue*" works only while the word partially survives; once it is gone
+from the transcript there is nothing to catch on, and inventing "Blue" from a
+category cue would be the confabulation the whole layer forbids. She declines the cue
+("no, I don't think so") rather than manufacture the answer. If cued recovery of a
+fully-lost item is ever wanted, *that* is what needs per-item episodic encoding — and
+it can wait for its own sprint, no longer blocking CDR 0.5.
 
 Until then, 0-of-3 is a slightly severe reading of CDR 0.5, and it is stated rather
 than hidden.

@@ -57,9 +57,19 @@ speech:
 insight: true
 
 # The delayed-recall probe — "remember these three words… now, what were they?" —
-# is the most diagnostic question in the CDR interview, and under the healthy
-# window of 12 turns it was *free*: the words sat verbatim in the prompt six turns
-# later and she read them back perfectly. Holding the thread of the current
-# exchange is preserved at CDR 0.5; holding it across ten minutes of other
-# conversation is not.
-working_memory_turns: 5
+# is the most diagnostic question in the CDR interview. Under the healthy window of
+# 12 turns it was *free*: the words sat verbatim in the prompt six turns later and
+# she read them back perfectly. A hard short window went too far the other way —
+# once the turn scrolled out she had *nothing*, "I don't remember any words", which
+# is a heavier deficit than CDR 0.5. Immediate registration is intact here; it is
+# retention across a delay that frays, and it frays *partially* — 2 of 3, or 1 of 3
+# with a cue.
+#
+# So the transcript fades rather than truncates (see impairment/hold.py). The last
+# two exchanges are held whole — registration and the current thread are safe.
+# Older exchanges lose words one at a time, more the further back, over the next
+# eight turns; a three-word list a few turns old comes back in part, and the
+# caregiver's cue is a fresh, unfaded turn that helps her land the rest.
+hold:
+  crisp_turns: 2
+  fade_turns: 8
