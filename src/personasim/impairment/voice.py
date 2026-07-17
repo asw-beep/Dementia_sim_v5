@@ -73,14 +73,30 @@ INSIGHT = (
 # have. This is the lightweight counter: a single line, present only on a turn that
 # actually faded something, telling her the gaps are gone and not to guess across
 # them. It withholds; it never invents — the same rule as the fade itself.
+#
+# Two corrections from the Sprint 2C/2D comparison drive, both this project's own
+# rules rediscovered at this seam. The first wording quoted a sample phrase — 'that
+# part has gone from me' — and the model made it a catchphrase (seed authoring rule
+# 2), denying her hobbies and her childhood home with the exact quoted words. And it
+# was unscoped: "if you are asked to recall something" reads as *any* recall, but the
+# fade only ever touches the transcript — her authored life arrives fresh in the
+# memory block every turn. Left unsaid, the model generalised the denial: with the
+# note firing and the window full of her own "I don't remember"s, she refused a
+# memory retrieved whole and sitting in the prompt (3/3 in the reproduction; 0/3
+# fresh-session). So the note now names its scope — this conversation — and states
+# plainly that the memories above it are exempt and have already come to mind.
 FADED_GAP = (
-    "Some of what was said earlier has slipped, and only part of it is still there in "
-    "your memory. If you are asked to recall something and can feel that a piece of it "
-    "has gone, say so plainly — 'that part has gone from me' — and give only what you "
-    "genuinely still hold. Do NOT guess at the missing pieces, and do NOT borrow a "
-    "word from something else said recently to fill the hole: a gap left open is the "
-    "truth; a gap filled with the wrong word is not. Do not write out any dots or "
-    "marks to stand for what is missing — just say, in your own words, that it is gone."
+    "Parts of this conversation — words said a few turns ago — have slipped, and only "
+    "some of what was said is still with you. This is about the conversation only. If "
+    "you are asked what was said or given to you earlier and a piece of it has gone, "
+    "say so in your own words and offer only what you genuinely still hold. Do NOT "
+    "guess at the missing pieces, and do NOT borrow a word from something said more "
+    "recently to fill the hole: a gap left open is the truth; a gap filled with the "
+    "wrong word is not. Do not write out any dots or marks to stand for what is "
+    "missing. And none of this touches the memories of your own life set out above: "
+    "whatever is written there HAS come to mind, this turn, as clearly as it ever did "
+    "— answer from it as you always would, and never claim a memory written above has "
+    "left you."
 )
 
 # CDR 3: speech has grown simple. This is a *register*, not a deficit, which is why

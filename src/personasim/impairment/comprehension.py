@@ -75,6 +75,21 @@ _TAGS = frozenset(
     }
 )
 
+#: Bare anaphors — pronouns whose referent lives in an earlier clause. The trim's
+#: whole premise is that the dropped clauses were scene-setting she has already
+#: lost; a kept tail that leans on one of these proves the premise wrong, because
+#: the dropped clause held the referent. "Describe the home where you grew up. What
+#: do you remember most about *it*?" trimmed to its tail is not a question she
+#: answers partially — it is a question about nothing, and the Sprint 2C/2D
+#: comparison drive showed the model resolving the orphaned "it" against the
+#: transcript instead (her maps) or denying the memory outright, which read as a
+#: remote-memory failure CDR 2 must not have. When the tail is anaphoric, one more
+#: clause is kept so the referent survives. "That"/"this" also appear as harmless
+#: complementizers; the false positive merely keeps one extra clause.
+_ANAPHORS = frozenset(
+    {"it", "its", "them", "they", "that", "those", "this", "these", "he", "she", "him", "her"}
+)
+
 
 def retain_question(
     user_message: str,
@@ -110,14 +125,25 @@ def retain_question(
     if not _fires(profile.speech.long_question_probability, session_id, turn):
         return user_message, None
 
-    first = substantive[-limit]
     last = substantive[-1]
-    start = spans[first][0]
     # Keep to end of string when the last substantive clause *is* the last clause (so a
     # closing "?" survives); otherwise cut at its end, dropping the trailing tag(s).
     end = len(user_message) if last == len(spans) - 1 else spans[last][1]
+
+    keep = limit
+    start = spans[substantive[-keep]][0]
+    # A tail that leans on a bare anaphor cannot stand alone — its referent was in
+    # the clause just dropped, and a question about an orphaned "it" is a question
+    # about nothing (see `_ANAPHORS`). Keep one more clause so the referent survives:
+    # the deficit stays (a 3-part question still loses its head), the wreckage goes.
+    if keep < len(substantive) and _anaphoric(user_message[start:end]):
+        keep += 1
+        start = spans[substantive[-keep]][0]
+        if keep == len(substantive):
+            return user_message, None
+
     kept = user_message[start:end].strip()
-    note = f"working memory: a {len(substantive)}-part question overran; kept only the last {limit}"
+    note = f"working memory: a {len(substantive)}-part question overran; kept only the last {keep}"
     return kept, note
 
 
@@ -133,6 +159,13 @@ def _clause_spans(text: str) -> list[tuple[int, int]]:
     if text[pos:].strip():
         spans.append((pos, len(text)))
     return spans
+
+
+def _anaphoric(text: str) -> bool:
+    """Whether `text` leans on a bare anaphor — a pronoun whose referent must live in
+    an earlier clause. Matched on whole words, lowercased, punctuation stripped."""
+    words = set(re.sub(r"[^a-z' ]", " ", text.lower()).split())
+    return bool(words & _ANAPHORS)
 
 
 def _normalise(clause: str) -> str:

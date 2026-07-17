@@ -323,6 +323,26 @@ ones" are admitted **only** as orientation (a wrong day or place) and as loss of
 *when* — never as invented biography or an injected false timeline; the closed cast is
 untouched. See `docs/design/sprint3_cdr2.md`.
 
+**Found after sign-off, in the five-profile comparison drive — RESOLVED (anaphora-aware
+trim).** Mid-session, CDR 2 denied her hobbies and her childhood home — remote,
+authored memories CDR 1 recalled richly one rung earlier, and the trace showed them
+*retrieved whole and in the prompt* while she denied them. The research isolated two
+causes, the second decisive. First, `voice.FADED_GAP` quoted a sample phrase — *'that
+part has gone from me'* — and the model made it a catchphrase (seed authoring rule 2,
+rediscovered at the impairment seam) and generalised the unscoped note into denying
+long-term memory; it is reworded to name its scope (this conversation only) and to
+state that the memory block above it is exempt. Second, and the actual denial: with
+`long_question_clauses` at 1, *"describe the home where you grew up? What do you
+remember most about **it**?"* trimmed to an **anaphoric tail** — a question about an
+orphaned "it", whose referent lived in the dropped clause. Retrieval read the full
+message (so Rutland sat in the memory block) but the model never heard "home", and
+resolved "it" against the transcript (her maps) or denied. The trim's premise — the
+dropped clauses were scene-setting — is false exactly then, so
+`impairment/comprehension.py` now keeps one more clause when the surviving tail leans
+on a bare anaphor: a two-part anaphoric question is heard whole, a three-part one
+still loses its head, and the deficit survives where it is honest. Reproduced 3/3
+denied before the fix, 0/3 after, against qwen3:14b; pinned by four regression tests.
+
 ### Sprint 2D — CDR 3 🔶 (current — built, adversarial drive pending)
 
 Severe. Retrieval largely collapses, language simplifies, orientation is poor,

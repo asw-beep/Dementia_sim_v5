@@ -684,10 +684,24 @@ class TestVoice:
         with_fade = voice_notes(CDR1, trace=empty, faded=True)
         without = voice_notes(CDR1, trace=empty, faded=False)
 
-        assert "gone from me" in with_fade
-        assert "gone from me" not in without
+        assert "about the conversation only" in with_fade
+        assert "about the conversation only" not in without
         # Healthy never fades, so the guard cannot appear even if `faded` is forced.
-        assert "gone from me" not in voice_notes(HEALTHY, trace=empty, faded=True)
+        assert "about the conversation only" not in voice_notes(HEALTHY, trace=empty, faded=True)
+
+    def test_the_fade_note_is_scoped_and_quotes_no_catchphrase(self) -> None:
+        # The CDR 2 comparison drive: with the old note firing every turn, the model
+        # denied her hobbies and her childhood home — memories retrieved whole and in
+        # the prompt — using the note's own quoted phrase, "it has gone from me".
+        # Two rules rediscovered, both pinned here: the note quotes no sample phrase
+        # (rule 2 — a quoted line becomes a catchphrase), and it names its scope, so
+        # the fade cannot be generalised into denying the memory block above it.
+        from personasim.impairment.voice import FADED_GAP
+
+        assert "gone from me" not in FADED_GAP  # the catchphrase is gone
+        assert "'" not in FADED_GAP.replace("…", "")  # no quotable sample phrase at all
+        assert "about the conversation only" in FADED_GAP  # scope, stated
+        assert "set out above" in FADED_GAP  # the memory block is exempt, and says so
 
     def test_the_uncertain_clock_still_tells_the_truth(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
@@ -936,6 +950,40 @@ class TestComprehension:
             )
             assert heard == "Do you have a dog, by the way?"
             assert note is None
+
+    def test_an_anaphoric_tail_keeps_its_referent(self) -> None:
+        # The CDR 2 comparison-drive defect. "Describe the home where you grew up?
+        # What do you remember most about it?" trimmed to its tail is a question about
+        # an orphaned "it" — the model resolved it against the transcript (her maps)
+        # or denied the memory outright, reading as the remote-memory failure CDR 2
+        # must not have. A two-part question whose tail leans on the dropped clause is
+        # heard whole: the premise that the dropped clause was scene-setting is false.
+        profile = load_profile(PROFILES / "cdr2.yaml")  # long_question_clauses == 1
+        for q in (
+            "Can you describe the home where you grew up? What do you remember most about it?",
+            "What hobbies or activities do you enjoy these days? How often do you do them?",
+        ):
+            for turn in range(40):
+                heard, note = retain_question(q, profile, session_id="e828d4d2", turn=turn)
+                assert heard == q
+                assert note is None
+
+    def test_an_anaphoric_tail_extends_by_one_clause_not_to_the_whole(self) -> None:
+        # The deficit is preserved: a three-part question with an anaphoric tail still
+        # loses its head — the trim keeps the referent's clause, not the whole message.
+        profile = load_profile(PROFILES / "cdr2.yaml")
+        q = (
+            "You lived in Vermont as a child, and the house had a porch, "
+            "and what do you remember most about it?"
+        )
+        results = [retain_question(q, profile, session_id="s", turn=t) for t in range(40)]
+        trimmed = [(h, n) for (h, n) in results if n is not None]
+
+        assert trimmed  # a real three-part question still overruns at CDR 2
+        heard, note = trimmed[0]
+        assert heard == "the house had a porch, and what do you remember most about it?"
+        assert "You lived in Vermont" not in heard  # the head is still lost
+        assert note is not None and "kept only the last 2" in note
 
     def test_an_overrun_drops_a_trailing_tag_and_keeps_the_real_question(self) -> None:
         # A genuine multi-part question with a tag on the end: the tag is dropped, and
