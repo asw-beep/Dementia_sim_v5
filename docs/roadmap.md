@@ -1,8 +1,9 @@
 # Roadmap
 
-**Status: Phase 1 complete, end to end. Phase 2 underway — Sprints 2A (CDR 0.5),
-2B (CDR 1) and 2C (CDR 2) declared complete by the owner; Sprint 2D (CDR 3) is
-current.**
+**Status: Phases 1 and 2 complete, end to end — all four CDR sprints declared
+complete by the owner, and every defect the five-profile comparison drive surfaced
+is fixed and pinned. Phase 3 (assessment mode) is current; Sprint 3A is scoped in
+`docs/design/phase3_assessment.md`.**
 
 Phase 1 was built waterfall, because a healthy persona is one thing and either
 works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
@@ -15,8 +16,9 @@ each independently shippable:
 | 2 | 2A | CDR 0.5 — very mild impairment | ✅ Complete |
 | 2 | 2B | CDR 1 — mild | ✅ Complete |
 | 2 | 2C | CDR 2 — moderate | ✅ Complete |
-| 2 | 2D | **CDR 3 — severe** | 🔶 **Current** (built; adversarial drive pending) |
-| 3 | — | Assessment mode (caregiver predicts a CDR; system reveals and explains) | ⬜ |
+| 2 | 2D | CDR 3 — severe | ✅ Complete |
+| 3 | 3A | **Assessment: the evidence ledger** (`persona assess`) | 🔶 **Current** (scoped) |
+| 3 | 3B | Assessment: the blind interview and the reveal | ⬜ |
 | 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
 | 5 | — | Longitudinal progression | ⬜ |
 
@@ -343,7 +345,14 @@ on a bare anaphor: a two-part anaphoric question is heard whole, a three-part on
 still loses its head, and the deficit survives where it is honest. Reproduced 3/3
 denied before the fix, 0/3 after, against qwen3:14b; pinned by four regression tests.
 
-### Sprint 2D — CDR 3 🔶 (current — built, adversarial drive pending)
+### Sprint 2D — CDR 3 ✅ (declared complete by the owner)
+
+> The five-profile comparison drive (15 probes × 5 profiles, qwen3:14b) stood in for
+> the adversarial drive, and every defect it surfaced is fixed, verified live, and
+> pinned: the place recital (the place gate, below), the CDR 2 remote-memory denial
+> (the anaphora-aware trim, recorded under 2C), and the healthy Q15 slip (shown to be
+> a non-reproducible one-off, no change made). The owner has declared the sprint —
+> and with it Phase 2 — complete. `cdr3.yaml` remains data and may still be tuned.
 
 Severe. Retrieval largely collapses, language simplifies, orientation is poor,
 recognition fails. Again: same architecture, different profile.
@@ -387,16 +396,17 @@ is her daughter, which would manufacture a false fact about the closed cast.
 `memory.formation.CAREGIVER` is untouched — every disclosure still lands on the same
 fixed subject, whoever she believes is speaking.
 
-**Open decision — misidentification is a ground-truth feature the closed-cast rule
-cannot fully express.** `CDR3.md` lists "misidentify… who is present" and "confuse
-people" as in-scope; a confident wrong name ("you're my daughter") would manufacture a
-false fact about the closed cast, which no severity may do. So recognition failure is
-honoured as *honest non-recognition* — an "I don't know who you are", a familiar face
-placed inconsistently — not a decided wrong identity. This is stated in `CDR3.md`'s
-implementation note and here, rather than left silent; the drive will judge whether
-honest non-recognition reads as CDR 3, or whether a bounded, non-confabulatory form of
-misplacing (e.g. *"are you… one of the nurses?"* offered as a question, never asserted)
-is worth a later mechanism. **Emotional response is preserved, not suppressed:** the
+**Decision — misidentification, CLOSED (accepted by the owner at sign-off).**
+`CDR3.md` lists "misidentify… who is present" and "confuse people" as in-scope; a
+confident wrong name ("you're my daughter") would manufacture a false fact about the
+closed cast, which no severity may do. So recognition failure is honoured as *honest
+non-recognition* — an "I don't know who you are", a familiar face placed
+inconsistently — not a decided wrong identity. This is the one clinical feature the
+architecture deliberately cannot fully express; it is stated in `CDR3.md`'s
+implementation note and accepted as-is. If a later review wants more, the bounded,
+non-confabulatory form (*"are you… one of the nurses?"* offered as a question, never
+asserted) is the shape to argue for — in `docs/future.md`, with a transcript behind
+it. **Emotional response is preserved, not suppressed:** the
 spec keeps "show fear, seek comfort, appear distressed", so the orientation and
 recognition fragments permit momentary, in-character unease (an earlier draft wrongly
 told her the gaps did not trouble her). A *sustained* distress/agitation engine stays
@@ -451,6 +461,52 @@ starting values and should be expected to move once the transcript says where.
 Disease progression, emotional engine, hallucination engine, stochastic failure
 beyond the profile parameters, caregiver scoring, medication, sundowning,
 wandering, agitation. Ignore them. Each is either a later phase or `docs/future.md`.
+
+---
+
+## Phase 3 — assessment mode (current)
+
+Scope: `docs/design/phase3_assessment.md`. A caregiver interviews blind, commits to
+a CDR, and the system reveals the actual one and explains the gap per domain.
+
+Three theses, each inherited from an earlier phase's discipline:
+
+- **The reveal is a replay of the trace, not a judgment by a model.** Every
+  mechanism already explains itself per turn in the session log; assessment
+  aggregates by rule. `assessment/` may not import the LLM — the same invariant, for
+  the same reason, as formation.
+- **The system never diagnoses.** The actual CDR is the profile that was loaded, not
+  something inferred from the transcript. A severity inferrer would be a second
+  scorer to tune the simulator against — the exact failure the phase ordering
+  exists to prevent.
+- **Report only what a conversation can show.** Memory, orientation, and the
+  expressed sliver of judgment are evidenced; community affairs, home and hobbies,
+  and personal care are named as unobservable in conversation, not padded.
+
+### Sprint 3A — the evidence ledger 🔶 (current — scoped, not started)
+
+`persona assess <session-id>`: a deterministic per-domain report over one logged
+session — recall fates split remote vs recent, orientation withholdings, overruns,
+word-finding cadence, each line naming its turn — with the loaded profile's intended
+numbers beside the observed behaviour. CLI only; no prediction, no UI change, no new
+trace fields (notes stay prefix-tagged strings, vocabulary pinned by test on both
+the emitting and parsing side).
+
+### Sprint 3B — the blind interview and the reveal ⬜
+
+Assessment mode in the web UI: profile label, `/api/profile` and the `why?` trace
+panel suppressed (the trace is the answer key); the caregiver commits to a CDR
+before the reveal; the reveal is 3A's report framed as the gap between predicted and
+actual, with per-stage expectations drawn from the profile YAMLs and `CDR*.md` — no
+third expectations artifact. Profile selection stays manual; hidden-by-construction
+random patients are Phase 4.
+
+### Not in Phase 3 — do not build these
+
+Scoring or grading the caregiver, severity inference from transcripts, LLM-written
+session summaries, random patients (Phase 4), progression (Phase 5), and any new
+symptom, mechanism, or profile field — a missing mechanism is a Phase 2 amendment
+argued with a transcript, never a Phase 3 feature.
 
 ---
 
