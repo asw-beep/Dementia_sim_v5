@@ -18,7 +18,8 @@ each independently shippable:
 | 2 | 2C | CDR 2 — moderate | ✅ Complete |
 | 2 | 2D | CDR 3 — severe | ✅ Complete |
 | 3 | 3A | **Assessment: the evidence ledger** (`persona assess`) | 🔶 **Current** (scoped) |
-| 3 | 3B | Assessment: the blind interview and the reveal | ⬜ |
+| 3 | 3B | Assessment: the blind loop — draw, worksheet, commit, reveal | ⬜ |
+| 3 | 3C | Assessment: the coach — gap diff, coverage, review mode, history | ⬜ |
 | 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
 | 5 | — | Longitudinal progression | ⬜ |
 
@@ -464,10 +465,16 @@ wandering, agitation. Ignore them. Each is either a later phase or `docs/future.
 
 ---
 
-## Phase 3 — assessment mode (current)
+## Phase 3 — assessment mode (current): caregiver training through blind interview
 
-Scope: `docs/design/phase3_assessment.md`. A caregiver interviews blind, commits to
-a CDR, and the system reveals the actual one and explains the gap per domain.
+Scope: `docs/design/phase3_assessment.md` (supersedes the first Phase 3 scope; same
+foundations, sharpened into a training loop). **The loop:** a hidden profile is
+drawn — *including healthy, so over-diagnosis is trained away* — the caregiver
+interviews and rates as they go on a worksheet, commits, and only then sees the
+actual stage with the evidence they used, missed, or never elicited. Modelled on the
+Washington University CDR training protocol (blind rating against gold-standard
+cases), upgraded in one way: the trainee conducts the interview rather than watching
+one, so *eliciting* evidence is trained alongside reading it.
 
 Three theses, each inherited from an earlier phase's discipline:
 
@@ -475,38 +482,57 @@ Three theses, each inherited from an earlier phase's discipline:
   mechanism already explains itself per turn in the session log; assessment
   aggregates by rule. `assessment/` may not import the LLM — the same invariant, for
   the same reason, as formation.
-- **The system never diagnoses.** The actual CDR is the profile that was loaded, not
-  something inferred from the transcript. A severity inferrer would be a second
-  scorer to tune the simulator against — the exact failure the phase ordering
-  exists to prevent.
+- **The system never diagnoses.** The actual CDR is the drawn profile, known by
+  construction — never inferred from the transcript. A severity inferrer would be a
+  second scorer to tune the simulator against.
 - **Report only what a conversation can show.** Memory, orientation, and the
-  expressed sliver of judgment are evidenced; community affairs, home and hobbies,
-  and personal care are named as unobservable in conversation, not padded.
+  expressed sliver of judgment are evidenced (language as supporting observation);
+  community affairs, home and hobbies, and personal care are named as unobservable
+  in conversation, not padded — they are off the worksheet for the same reason.
 
 ### Sprint 3A — the evidence ledger 🔶 (current — scoped, not started)
 
 `persona assess <session-id>`: a deterministic per-domain report over one logged
 session — recall fates split remote vs recent, orientation withholdings, overruns,
-word-finding cadence, each line naming its turn — with the loaded profile's intended
-numbers beside the observed behaviour. CLI only; no prediction, no UI change, no new
-trace fields (notes stay prefix-tagged strings, vocabulary pinned by test on both
-the emitting and parsing side).
+word-finding cadence, and **probe coverage** (which probe types the interview
+contains, and which are absent), each line naming its turn — with the loaded
+profile's intended numbers beside the observed behaviour. CLI only; no prediction,
+no UI change, no new trace fields (notes stay prefix-tagged strings, vocabulary
+pinned by test on both the emitting and parsing side).
 
-### Sprint 3B — the blind interview and the reveal ⬜
+### Sprint 3B — the blind loop ⬜
 
-Assessment mode in the web UI: profile label, `/api/profile` and the `why?` trace
-panel suppressed (the trace is the answer key); the caregiver commits to a CDR
-before the reveal; the reveal is 3A's report framed as the gap between predicted and
-actual, with per-stage expectations drawn from the profile YAMLs and `CDR*.md` — no
-third expectations artifact. Profile selection stays manual; hidden-by-construction
-random patients are Phase 4.
+The per-session hidden draw (uniform over all five profiles, weights held as data;
+genuinely random on purpose — the hash-not-roll invariant protects `impairment/`'s
+replay, and the draw's one job is to be unguessable). The five leaks sealed:
+`/api/profile`, the per-message trace (`Exchange.trace` — the answer key), the
+transcript download, the `run`/server log labels, and `SessionStore`'s
+per-server profile. The worksheet (three domains + language + global, `CDR*.md`
+anchor text beside it, optional probe guide), the commitment (end locks the
+transcript, submit locks the rating), the reveal (actual + rating + raw ledger), and
+an additive `assessments` table. Blindness is a UI contract, not a security
+boundary, and says so.
+
+### Sprint 3C — the coach ⬜
+
+Three kinds of feedback, all by rule: **discriminating evidence** where rated ≠
+actual (the turns whose recorded behaviour separates the two stages, phrased from
+profile numbers and spec anchors); **coverage** — what was never elicited ("the day
+was never asked"), the feedback only an active interview can get; **confirming
+evidence** when right. Plus review mode (the trace panel unlocked over the finished
+transcript) and the plain history (date, actual, rated, hit or miss — a mirror, not
+a mark). The phase's success criterion: a trainee who rates wrongly can point,
+after the reveal, to the turns they misread or the probes they never asked.
 
 ### Not in Phase 3 — do not build these
 
-Scoring or grading the caregiver, severity inference from transcripts, LLM-written
-session summaries, random patients (Phase 4), progression (Phase 5), and any new
-symptom, mechanism, or profile field — a missing mechanism is a Phase 2 amendment
-argued with a transcript, never a Phase 3 feature.
+LLM-generated feedback or summaries; severity inference from transcripts; grades,
+scores, certification or leaderboards (history only); adaptive difficulty over the
+draw and an informant-interview mode for the ADL domains (both `docs/future.md`);
+random persona generation (Phase 4 — the draw varies the *profile* over one authored
+persona, not the *person*); progression (Phase 5); and any new symptom, mechanism,
+or profile field — a gap a drive exposes is a Phase 2 amendment argued with a
+transcript, never a Phase 3 feature.
 
 ---
 
