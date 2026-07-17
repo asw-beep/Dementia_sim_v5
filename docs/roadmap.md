@@ -17,7 +17,7 @@ each independently shippable:
 | 2 | 2B | CDR 1 — mild | ✅ Complete |
 | 2 | 2C | CDR 2 — moderate | ✅ Complete |
 | 2 | 2D | CDR 3 — severe | ✅ Complete |
-| 3 | 3A | **Assessment: the evidence ledger** (`persona assess`) | 🔶 **Current** (scoped) |
+| 3 | 3A | **Assessment: the evidence ledger** (`persona assess`) | 🔶 **Current** (built; drive clean, owner sign-off pending) |
 | 3 | 3B | Assessment: the blind loop — draw, worksheet, commit, reveal | ⬜ |
 | 3 | 3C | Assessment: the coach — gap diff, coverage, review mode, history | ⬜ |
 | 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
@@ -490,15 +490,37 @@ Three theses, each inherited from an earlier phase's discipline:
   community affairs, home and hobbies, and personal care are named as unobservable
   in conversation, not padded — they are off the worksheet for the same reason.
 
-### Sprint 3A — the evidence ledger 🔶 (current — scoped, not started)
+### Sprint 3A — the evidence ledger 🔶 (current — built, drive clean, owner sign-off pending)
 
-`persona assess <session-id>`: a deterministic per-domain report over one logged
-session — recall fates split remote vs recent, orientation withholdings, overruns,
-word-finding cadence, and **probe coverage** (which probe types the interview
-contains, and which are absent), each line naming its turn — with the loaded
-profile's intended numbers beside the observed behaviour. CLI only; no prediction,
-no UI change, no new trace fields (notes stay prefix-tagged strings, vocabulary
-pinned by test on both the emitting and parsing side).
+`persona assess <persona> [--session] [--list] [--profile]`: a deterministic
+per-domain report over one logged session — recall fates split remote vs recent,
+orientation withholdings, overruns, word-finding cadence, and **probe coverage**
+(which probe types the interview contains, and which are absent), each line naming
+its turn — with, given `--profile`, the profile's intended numbers beside the
+observed behaviour. CLI only; no prediction, no UI change, no new trace fields.
+
+Built: `assessment/` (vocabulary, probes, ledger, report — a pure reader), the CLI
+command, and two new invariants — `assessment/` may import neither the LLM nor
+storage (the CLI hands it turns, so the package cannot quietly grow a write path),
+and it joins the packages allowed to read `impairment` profiles. The note
+vocabulary is pinned from **both sides**: the emitters are invoked for real in the
+tests and their notes must parse, so a reworded note breaks loudly rather than
+silently orphaning the ledger. The probe classifier is validated against the
+fifteen-probe bank from the comparison drive. 37 new tests; `make check` green at
+580.
+
+The session log does not record which profile it ran under — that lands with 3B's
+assessments table — so `--profile` lets the operator state it until then.
+
+**Driven** against qwen3:14b: one 10-probe session per profile into a scratch
+database, `persona assess` over each. The healthy report says "Nothing impaired
+was observed" with full coverage and every remote memory intact; CDR 2 shows the
+dissociation at a glance (remote intact beside recent-withheld with its
+arithmetic, the fade accelerating 2→61 words across the session, place hedged,
+four overruns, word-finding); CDR 3 differs exactly where the profiles differ
+(residence *withheld* rather than hedged, the crisp-zero fade biting from turn 2,
+the higher thresholds printed). Every failure in each transcript is accounted for
+with its mechanism and its turn.
 
 ### Sprint 3B — the blind loop ⬜
 

@@ -262,18 +262,44 @@ def test_impairment_is_deterministic_and_recall_side_only() -> None:
 def test_the_healthy_core_does_not_import_impairment() -> None:
     """Phase 2 wraps Phase 1; Phase 1 must not know it exists.
 
-    The conversation loop is the single, deliberate exception: it is the
-    compositor, and wiring the wrapper in front of the engine is its job. If
+    The conversation loop is the single compositional exception: it is the
+    compositor, and wiring the wrapper in front of the engine is its job. The CLI
+    and web adapters load profiles, and `assessment/` (Phase 3) reads them to put
+    intended numbers beside observed behaviour — consumers all, above the core. If
     retrieval, formation, working memory, the models, or storage ever import the
     impairment package, the layer has stopped being a wrapper and started being
     an edit — which is the entire architectural promise of the phase, broken.
     """
-    allowed = {SRC / "conversation" / "loop.py", SRC / "cli.py", SRC / "web"}
+    allowed = {
+        SRC / "conversation" / "loop.py",
+        SRC / "cli.py",
+        SRC / "web",
+        SRC / "assessment",
+    }
     offenders = [
         f"{path.relative_to(SRC)} imports {module}"
         for path in healthy_core_files()
         if path not in allowed and not any(parent in allowed for parent in path.parents)
         for module in _imported_modules(path)
         if module.startswith("personasim.impairment")
+    ]
+    assert not offenders, offenders
+
+
+def test_assessment_never_consults_the_llm() -> None:
+    """The reveal is a replay of the trace, not a judgment by a model.
+
+    Assessment aggregates what the session log recorded and renders text. A model
+    in that path would make the explanation vary between two readings of the same
+    session — and able to be wrong, which an answer key must never be. The same
+    invariant, for the same reason, as formation. Storage stays out too: the CLI
+    hands assessment its turns, so the package cannot quietly grow a write path.
+    """
+    forbidden = ("personasim.llm", "personasim.storage")
+    offenders = [
+        f"{path.relative_to(SRC)} imports {module}"
+        for path in sorted((SRC / "assessment").rglob("*.py"))
+        for module in _imported_modules(path)
+        if module.startswith(forbidden) or module.split(".")[0] in {"ollama", "sqlalchemy"}
     ]
     assert not offenders, offenders

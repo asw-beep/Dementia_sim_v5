@@ -98,6 +98,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="list this persona's sessions instead of replaying one",
     )
 
+    assess = subcommands.add_parser(
+        "assess",
+        help="the evidence ledger: what one session showed, per clinical domain",
+    )
+    assess.add_argument("persona", help="the persona id, e.g. elena-marsh")
+    assess.add_argument(
+        "--session",
+        help="the session to assess; defaults to the most recent one",
+    )
+    assess.add_argument(
+        "--list",
+        action="store_true",
+        help="list this persona's sessions instead of assessing one",
+    )
+    assess.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "the cognitive profile the session ran under (see data/profiles/). "
+            "Given, the report states each mechanism's intended numbers beside "
+            "what was observed; omitted, it reports observations only."
+        ),
+    )
+
     return parser
 
 
@@ -276,6 +300,53 @@ def _list_sessions(sessions: list[SessionSummary], persona_id: PersonaId) -> int
     return 0
 
 
+def _assess(
+    settings: Settings,
+    database_override: Path | None,
+    persona_id: PersonaId,
+    session_id: str | None,
+    show_list: bool,
+    profile_path: Path | None,
+) -> int:
+    """The evidence ledger over one logged session (Sprint 3A).
+
+    A pure reader: aggregates the traces the session already recorded into a
+    per-domain report, every line naming its turn. The session log does not record
+    which profile it ran under — that lands with the assessments table in Sprint
+    3B — so until then `--profile` lets the operator state it, which adds the
+    intended-versus-observed column.
+    """
+    from personasim.assessment import build_ledger, render_report
+
+    profile = None
+    if profile_path is not None:
+        try:
+            profile = load_profile(profile_path)
+        except ProfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    database = _open_database(settings, database_override)
+    try:
+        with database.session() as db:
+            sessions = SessionRepository(db)
+
+            if show_list:
+                return _list_sessions(sessions.list_sessions(persona_id), persona_id)
+
+            chosen = session_id or sessions.latest_session_id(persona_id)
+            if chosen is None:
+                print(f"error: {persona_id} has no recorded sessions.", file=sys.stderr)
+                return 1
+
+            turns = sessions.get_turns(chosen)
+
+        print(render_report(build_ledger(chosen, turns), profile))
+        return 0
+    finally:
+        database.dispose()
+
+
 def _new(output: Path | None) -> int:
     """Author a persona by being asked, rather than by remembering to.
 
@@ -366,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "trace":
         return _trace(settings, args.database, args.persona, args.session, args.list)
+
+    if args.command == "assess":
+        return _assess(settings, args.database, args.persona, args.session, args.list, args.profile)
 
     if args.command == "serve":
         return _serve(settings, args.database, args.host, args.port, args.profile)
