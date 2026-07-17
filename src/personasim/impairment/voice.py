@@ -83,6 +83,24 @@ FADED_GAP = (
     "marks to stand for what is missing — just say, in your own words, that it is gone."
 )
 
+# CDR 3: speech has grown simple. This is a *register*, not a deficit, which is why
+# the seam may carry it — the word-finding lesson (a prompt cannot make a capable
+# model fail at something it can do) does not apply to an instruction the model
+# follows willingly, like the speech manner the seed already delivers this way. Two
+# guards, both learned elsewhere: describe the manner, quote nothing (a sample phrase
+# becomes a catchphrase); and forbid the caricature in both directions — no babbling
+# or performed confusion, and no decorated fluency. If a drive shows the model
+# declines the register, the fallback is mechanical, and must be earned by that
+# transcript — see docs/design/sprint4_cdr3.md.
+SIMPLE_SPEECH = (
+    "Your speech has grown simple. Short sentences, plain everyday words, one "
+    "thought at a time — the long, fluent sentences you once made do not come any "
+    "more. Answer in a few short sentences at most, often fewer, and it is natural "
+    "for you to trail off or leave a thought unfinished. Do not perform confusion "
+    "and do not babble: the words you do say are ordinary, clear, and your own — "
+    "there are simply fewer of them, said more plainly."
+)
+
 
 def voice_notes(
     profile: CognitiveProfile,
@@ -99,6 +117,7 @@ def voice_notes(
     parts = [
         _insight(profile, trace),
         FADED_GAP if faded and profile.hold.fades else "",
+        SIMPLE_SPEECH if profile.speech.simplified_language else "",
     ]
     return "\n\n".join(part for part in parts if part)
 
@@ -107,7 +126,7 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
     """The clock and the setting, as she experiences them — or None to leave
     `render_now` alone.
 
-    Two axes, degraded a sprint apart, composed here into one frame:
+    Three axes, degraded a sprint apart, composed here into one frame:
 
     Time (``day_and_date``):
 
@@ -128,26 +147,51 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
       surroundings but loses her bearings somewhere unfamiliar or changed, and
       morning runs into afternoon. Same discipline — the frame stops asserting a
       confidence she no longer has; it never puts a false place or hour in her mouth.
+    - ``lost`` (CDR 3) — the month, the year and the season go too. The frame asserts
+      the one thing that still holds — who she herself is — and nothing about when or
+      where. Orientation to person only, and familiar surroundings no longer hold her.
+
+    Person (``person``):
+
+    - ``unfamiliar`` (CDR 3) — *who she is speaking with* is withheld from the frame:
+      recognition does not reliably come. What is never withheld is the I/you split —
+      she always knows the speaker is someone else — and what is expressly forbidden
+      is resolving a blank by inventing an identity. Unfamiliarity is honest;
+      misidentification would manufacture a false fact about a closed cast.
 
     None of it needs a probability: the haze is constant, and it only shows when
     someone asks — which is occasionally.
     """
     time_sense = profile.orientation.day_and_date
-    place_hazy = profile.orientation.place == "hazy"
-    if time_sense == "confident" and not place_hazy:
+    place_sense = profile.orientation.place
+    person_known = profile.orientation.person == "confident"
+    if time_sense == "confident" and place_sense == "confident" and person_known:
         return None
 
     now = when or datetime.now()
 
-    # The frame asserts only what still holds. Month, year and the person she is
-    # speaking with are steady at every severity here. The time of day and the place
-    # hold until CDR 2's haze takes them together, so they are handed to her — and so
-    # recitable — only while `place` is confident; under `hazy` they are withheld,
-    # exactly as `mistaken` withholds the weekday.
-    if place_hazy:
+    # The frame asserts only what still holds. The time of day and the place hold
+    # until CDR 2's haze takes them together; the month and year hold until CDR 3's
+    # `lost` takes them; recognising the speaker holds until CDR 3's `unfamiliar`.
+    # Whatever is degraded is *withheld* from the frame — and so not recitable —
+    # exactly as `mistaken` withholds the weekday. What outlasts every stage is
+    # orientation to her own person.
+    speaker = ", and who you are speaking with" if person_known else ""
+    if place_sense == "lost":
+        # No date string at all: month, year and season are genuinely gone, so the
+        # frame cannot hand them to her. Only her own person is asserted.
         frame = (
-            f"Right now it is {now.strftime('%B %Y')}. You know the month, the year, "
-            "and who you are speaking with — with ordinary, easy confidence.\n"
+            f"You know who you are — your name, your own life{speaker} — with "
+            "ordinary, easy confidence. That much is steady.\n"
+        )
+        coda = (
+            "Say all of this as a person would, not as a clock or a map would — "
+            "vaguely, in your own words, and never reciting a certainty you do not feel."
+        )
+    elif place_sense == "hazy":
+        frame = (
+            f"Right now it is {now.strftime('%B %Y')}. You know the month, the year"
+            f"{speaker} — with ordinary, easy confidence.\n"
         )
         coda = (
             "Say all of this as a person would, not as a clock or a map would — "
@@ -157,7 +201,7 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
         frame = (
             f"Right now it is {now.strftime('%B %Y')}, and the time is "
             f"{now.strftime('%-I:%M %p').lower()}. You know the month, the year, the "
-            "time of day, where you are, and who you are speaking with — with ordinary, "
+            f"time of day, where you are{speaker} — with ordinary, "
             "easy confidence.\n"
         )
         coda = (
@@ -194,7 +238,7 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
             "how things have become.\n"
         )
 
-    if place_hazy:
+    if place_sense == "hazy":
         # Place and the part of the day are withheld from the frame, not falsified.
         # Home stays clear — familiar surroundings hold her — so this reads as CDR 2's
         # intermittent disorientation, not CDR 3's constant "where am I?".
@@ -209,6 +253,47 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
             "setting has come loose: say what you believe, and where it genuinely "
             "escapes you, say so plainly rather than reaching for a certainty you no "
             "longer have.\n"
+        )
+    elif place_sense == "lost":
+        # Place is gone, familiar surroundings included — the CDR 2 haze deepened past
+        # its anchor. Still withheld, never falsified: she says she does not know, or
+        # offers a guess she marks as one; she is never told she is somewhere she is not.
+        parts.append(
+            "And you no longer know where you are. Even a room that should be familiar "
+            "does not tell you where you are or how you came to be in it, and the time "
+            "of day — morning, evening — is gone with it; you could not say whether it "
+            "is early or late. You may still know your own address as a fact — the "
+            "street, the town you have lived in for years — but knowing where you live "
+            "is not the same as knowing where you are now, and mostly you are not sure "
+            "that you are there. So asked where you are at this moment, do NOT simply "
+            "recite your address as though it answered the question; say instead that "
+            "you are not certain where you are — you might name the home you know and "
+            "add that you cannot be sure this is it, or simply say it has gone from you. "
+            "Asked the time, the month, the season, answer the same way: say plainly "
+            "that you do not know, or offer a guess and let it be a guess, rather than "
+            "reaching for a certainty you no longer have. Sometimes the gap unsettles "
+            "you and you may say so; sometimes it does not — either is honest. What you "
+            "never do is state a place or an hour as fact when you do not truly have it.\n"
+        )
+
+    if not person_known:
+        # The last axis. Who the speaker is is withheld, never the fact that someone is
+        # speaking and never the I/you split — she always knows the speaker is not her.
+        # And a blank is answered with honest unfamiliarity, never a manufactured
+        # identity: not knowing who someone is, is the truth; deciding who they are is
+        # the confabulation the whole layer forbids.
+        parts.append(
+            "And who you are speaking with does not always come to you. This person is "
+            "here and talking with you, and you answer them warmly — but you may not "
+            "know who they are, or whether you have met them before, and often you do "
+            "not. When their name or how you know them will not come, say so plainly — "
+            "'I'm sorry, I don't quite know who you are' — rather than pretending to "
+            "place them; it may unsettle you a little, or it may not, and either is "
+            "honest. Never decide they are someone in particular — a daughter, a "
+            "friend, someone from your past — when you do not truly know; a wrong name "
+            "would be worse than an honest 'I don't know'. Whoever they are, when they "
+            "say 'I' they mean themselves and when they say 'you' they mean you: they "
+            "are not you, and you never speak as though you were them.\n"
         )
 
     parts.append(coda)

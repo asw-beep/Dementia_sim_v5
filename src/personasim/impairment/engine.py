@@ -9,6 +9,7 @@ same signature, so a `Conversation` never knows which one it is holding.
 
 from __future__ import annotations
 
+from personasim.impairment.orientation import apply_place_gate
 from personasim.impairment.profile import CognitiveProfile
 from personasim.impairment.recall import apply_recall_gate
 from personasim.models.trace import MemoryTrace
@@ -35,9 +36,13 @@ class ImpairedRetrievalEngine:
         self._session_id = session_id
 
     def retrieve(self, query: str) -> MemoryTrace:
-        return apply_recall_gate(
+        # Recency first (age-based recall), then place (the self-location memory,
+        # which recall never gates because it is authored and ageless). Both only
+        # ever withhold or hedge; neither invents.
+        trace = apply_recall_gate(
             self._inner.retrieve(query),
             self._profile,
             self._source,
             session_id=self._session_id,
         )
+        return apply_place_gate(trace, self._profile, self._source)

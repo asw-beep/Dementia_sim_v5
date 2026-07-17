@@ -30,9 +30,16 @@ Sureness = Literal["confident", "uncertain", "mistaken"]
 #: not `Sureness`: place has no "uncertain-but-corrects" rung — she either knows
 #: where she is or she does not reliably. ``hazy`` is CDR 2's intermittent
 #: disorientation (unsure in unfamiliar or changed surroundings, fine at home);
-#: ``lost`` — a constant "where am I?" — is CDR 3, and is added when that sprint
-#: gives it a consumer, not before.
-PlaceSense = Literal["confident", "hazy"]
+#: ``lost`` is CDR 3's — where she is, and when it is beyond her own person, have
+#: gone, familiar surroundings included. The rung `sprint3_cdr2.md` promised.
+PlaceSense = Literal["confident", "hazy", "lost"]
+
+#: Recognition of the person she is speaking with — the last orientation axis to
+#: fray, at CDR 3. Two rungs only: she either places the speaker easily or does not
+#: reliably. ``unfamiliar`` withholds *who this person is*, never the fact that
+#: someone is speaking or the I/you split — and failed recognition is honest
+#: unfamiliarity, never a manufactured identity (see `impairment.voice`).
+PersonSense = Literal["confident", "unfamiliar"]
 
 
 class ProfileError(Exception):
@@ -91,12 +98,14 @@ class RecallGate(BaseModel):
 
 
 class Orientation(BaseModel):
-    """What she is sure of about time and place. Consumed by `impairment.voice`.
+    """What she is sure of about time, place, and person. Consumed by
+    `impairment.voice`.
 
-    Two axes now, degraded a sprint apart. **Time** (`day_and_date`) frays first, at
-    CDR 0.5; **place** frays at CDR 2. Month, year, and the person she is speaking
-    with still stay confident — they gain fields only in the sprint that degrades
-    them.
+    Three axes, degraded a sprint apart. **Time** (`day_and_date`) frays first, at
+    CDR 0.5; **place** frays at CDR 2 and goes at CDR 3; **person** — recognition of
+    who she is speaking with — frays last, at CDR 3. What never degrades is
+    orientation to her *own* person: knowing who she herself is outlasts every stage
+    on the scale.
 
     Time — `day_and_date`:
 
@@ -119,12 +128,26 @@ class Orientation(BaseModel):
       the day together (morning for afternoon). Like the clock, this *withholds* the
       easy confidence the frame otherwise asserts; it never puts a false place in her
       mouth, and stores nothing. A constant "where am I?" is CDR 3, not this.
+    - ``lost`` — CDR 3. Orientation to her own person only: where she is, how she
+      came to be there, the part of day, the month and the season are withheld from
+      the frame even in familiar surroundings. Same discipline — withheld, never
+      falsified, stored nowhere.
+
+    Person — `person`:
+
+    - ``confident`` — healthy through CDR 2. She knows who she is speaking with.
+    - ``unfamiliar`` — CDR 3. *Who* the speaker is does not reliably come to her.
+      The frame withholds the easy recognition, keeps the I/you split intact (she
+      always knows the speaker is not herself), and forbids resolving the blank by
+      inventing an identity — unfamiliarity is honest; misidentification would
+      manufacture a false fact about a closed cast, at any severity.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     day_and_date: Sureness = "confident"
     place: PlaceSense = "confident"
+    person: PersonSense = "confident"
 
 
 class WorkingMemoryHold(BaseModel):
@@ -193,6 +216,10 @@ class Speech(BaseModel):
     long_question_clauses: int = Field(default=0, ge=0)
     #: Chance she actually loses the thread of such a message, rather than coping.
     long_question_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+    #: CDR 3: speech has grown simple — short sentences, plain words, one thought at
+    #: a time. A register, not a deficit, which is why the prompt seam may carry it
+    #: (see `impairment.voice.SIMPLE_SPEECH` and `sprint4_cdr3.md`).
+    simplified_language: bool = False
 
 
 class CognitiveProfile(BaseModel):
@@ -220,6 +247,11 @@ class CognitiveProfile(BaseModel):
         return self.recall.recent_window_days > 0
 
     @property
+    def degrades_place(self) -> bool:
+        """Whether orientation to place is degraded — the place gate has work to do."""
+        return self.orientation.place != "confident"
+
+    @property
     def is_impaired(self) -> bool:
         """Whether this profile changes anything at all."""
         return (
@@ -227,7 +259,10 @@ class CognitiveProfile(BaseModel):
             or self.insight
             or self.hold.fades
             or self.orientation.day_and_date != "confident"
+            or self.orientation.place != "confident"
+            or self.orientation.person != "confident"
             or self.speech.word_finding_probability > 0
+            or self.speech.simplified_language
         )
 
 

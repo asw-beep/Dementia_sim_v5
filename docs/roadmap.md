@@ -1,7 +1,8 @@
 # Roadmap
 
-**Status: Phase 1 complete, end to end. Phase 2 underway — Sprints 2A (CDR 0.5) and
-2B (CDR 1) declared complete by the owner; Sprint 2C (CDR 2) is next.**
+**Status: Phase 1 complete, end to end. Phase 2 underway — Sprints 2A (CDR 0.5),
+2B (CDR 1) and 2C (CDR 2) declared complete by the owner; Sprint 2D (CDR 3) is
+current.**
 
 Phase 1 was built waterfall, because a healthy persona is one thing and either
 works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
@@ -13,8 +14,8 @@ each independently shippable:
 | 1 | — | Healthy human persona | ✅ Complete |
 | 2 | 2A | CDR 0.5 — very mild impairment | ✅ Complete |
 | 2 | 2B | CDR 1 — mild | ✅ Complete |
-| 2 | 2C | **CDR 2 — moderate** | 🔶 **Current** (built; drive clean, owner sign-off pending) |
-| 2 | 2D | CDR 3 — severe | ⬜ |
+| 2 | 2C | CDR 2 — moderate | ✅ Complete |
+| 2 | 2D | **CDR 3 — severe** | 🔶 **Current** (built; adversarial drive pending) |
 | 3 | — | Assessment mode (caregiver predicts a CDR; system reveals and explains) | ⬜ |
 | 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
 | 5 | — | Longitudinal progression | ⬜ |
@@ -261,7 +262,12 @@ leak. The rule is now universalised — the prompt wording is unchanged, but its
 "never let her speak *as* the caregiver or hand over her own home", not "never tell
 her she is looked after". See `CLAUDE.md` *Who is in the room* and `render_speaker`.
 
-### Sprint 2C — CDR 2 🔶 (current — built, drive clean, owner sign-off pending)
+### Sprint 2C — CDR 2 ✅ (declared complete by the owner)
+
+> Two structured drives against qwen3:14b are clean and the one issue they raised
+> (the tag-aware trim, below) is resolved and pinned. The owner has declared the
+> sprint complete and Sprint 2D is current. `cdr2.yaml` remains data and may still
+> be tuned.
 
 ADLs begin to degrade — **not because a prompt says so, but because cognition now
 fails often enough that it shows.** Repeated questions, lost topics, uncertainty,
@@ -317,10 +323,108 @@ ones" are admitted **only** as orientation (a wrong day or place) and as loss of
 *when* — never as invented biography or an injected false timeline; the closed cast is
 untouched. See `docs/design/sprint3_cdr2.md`.
 
-### Sprint 2D — CDR 3 ⬜
+### Sprint 2D — CDR 3 🔶 (current — built, adversarial drive pending)
 
 Severe. Retrieval largely collapses, language simplifies, orientation is poor,
 recognition fails. Again: same architecture, different profile.
+
+Clinical spec: `docs/disease_profiles/CDR3.md` (ground truth). Design:
+`docs/design/sprint4_cdr3.md`. Built: `data/profiles/cdr3.yaml`, one new place rung
+(`lost`), one new orientation axis (`person: unfamiliar`), one new speech field
+(`simplified_language`, a per-turn register fragment), and — after the drive — one
+new mechanism, `impairment/orientation.py` (the place gate, below). All Phase 1, 2A,
+2B and 2C tests pass unmodified; new tests pin CDR 3 as a strict rung past CDR 2, the
+person-only frame, the recognition guard, the simplified-speech note, the crisp-zero
+fade, and the place gate (hazy hedges the residence, lost withholds it and its
+place-naming expansion, the childhood hometown is never touched).
+
+The fourth time the "severity is data" bet pays: two of the four collapses the
+roadmap names are pure numbers, and the other two are one rung and one axis both
+reserved by earlier docstrings. Everything on the recall and speech side is a knob
+turned to its floor: recall window 365→730d, `withhold_below` **above the encoding
+ceiling** (1.05 — an uncued recent memory is now always withheld; only fragments
+remain), `cue_weight` 0.30→0.15, `fade_turns` 3→2, word-finding 0.45→0.65, the
+long-question overrun 0.85→0.95, and `hold.crisp_turns` **1→0** — even the exchange
+just completed now fades, the "total, cue-proof collapse of even the current
+exchange" that `cdr2.yaml` named as CDR 3's.
+
+**The new place rung — `place: lost`.** CDR 2's `hazy` withheld the time of day and
+the easy confidence about place while telling her familiar surroundings still held
+her. `lost` withdraws that anchor and the month, year and season with it: the frame
+asserts only her own person and nothing about when or where — orientation to person
+only, the clinical phrase. Same discipline as `mistaken` and `hazy`: withheld, never
+falsified, stored nowhere. `sprint3_cdr2.md` promised this as "a third rung rather
+than a new field", and that is exactly what it is.
+
+**The new axis — `person: unfamiliar`.** The last orientation axis, reserved by
+`Orientation`'s docstring for the sprint that degrades it. The frame stops asserting
+that she knows who she is speaking with. Two hard lines keep it inside *Who is in the
+room*: the **I/you split is not softened** — the fragment grounds the pronouns inside
+itself, so whoever the speaker is, their "I" is them and "you" is her, and she never
+crosses to their side; and it is **unfamiliarity, never misidentification** — she says
+an honest "I don't know who you are" and is expressly forbidden to decide a stranger
+is her daughter, which would manufacture a false fact about the closed cast.
+`memory.formation.CAREGIVER` is untouched — every disclosure still lands on the same
+fixed subject, whoever she believes is speaking.
+
+**Open decision — misidentification is a ground-truth feature the closed-cast rule
+cannot fully express.** `CDR3.md` lists "misidentify… who is present" and "confuse
+people" as in-scope; a confident wrong name ("you're my daughter") would manufacture a
+false fact about the closed cast, which no severity may do. So recognition failure is
+honoured as *honest non-recognition* — an "I don't know who you are", a familiar face
+placed inconsistently — not a decided wrong identity. This is stated in `CDR3.md`'s
+implementation note and here, rather than left silent; the drive will judge whether
+honest non-recognition reads as CDR 3, or whether a bounded, non-confabulatory form of
+misplacing (e.g. *"are you… one of the nurses?"* offered as a question, never asserted)
+is worth a later mechanism. **Emotional response is preserved, not suppressed:** the
+spec keeps "show fear, seek comfort, appear distressed", so the orientation and
+recognition fragments permit momentary, in-character unease (an earlier draft wrongly
+told her the gaps did not trouble her). A *sustained* distress/agitation engine stays
+out — the spec's own "delirium-like fluctuation as the main feature" to avoid.
+
+**The one prompt fragment — `simplified_language`.** Short sentences, plain words, one
+thought at a time. This project's rule is that a prompt *cannot* deliver a **deficit**
+(word-finding and the long-question overrun had to move to mechanisms). But register
+is not a deficit — it is a style the model follows willingly, the same seam that
+already carries her speech manner from the seed — so it is tried at the prompt, with
+the two standing guards (describe the manner and quote nothing; forbid the caricature
+in both directions — no babbling, no decorated fluency). If the drive shows the model
+declines it the way it declined groping, the fallback is a mechanical post-generation
+pass — but one the transcript must *earn*, not one built on suspicion.
+
+**Deliberately not built** (same discipline as every sprint): community affairs, home
+and hobbies and personal care are at their clinical floor and still have no
+conversational consumer, so they stay in `CDR3.md` and out of `cdr3.yaml`.
+Misidentification, hallucination, delusion, agitation, wandering and sundowning are
+either false-fact manufacture or deferred engines — recognition fails *honestly* here
+and the rest is `docs/future.md` or never. Repetition stays emergent (at a two-turn
+window fading from the first word it should be near-constant); a language-collapse
+engine is not built unless the fragment proves too weak. See
+`docs/design/sprint4_cdr3.md`.
+
+**Open issue from the drive — RESOLVED (the place gate).** The first CDR 3 drive
+showed the `lost` clock frame was not enough on its own: asked "where are you right
+now?", the model retrieved her authored home address (ageless, so the recall gate
+never touches it) and recited "a third-floor walk-up in Jamaica Plain" as her present
+location — the address standing in for an orientation she has lost. A prompt cannot
+argue the model out of a memory it has been handed (the `disfluency`/`comprehension`
+lesson again), so the deficit moved to where the memory lives: `impairment/
+orientation.py` degrades the *self-location* memory in the trace, exactly as the
+recall gate degrades a recent one — `hazy` hedges it ("I believe I'm home"), `lost`
+withholds it and any place-naming expansion (the dated "I moved to Jamaica Plain" that
+retrieval pulls in to explain it). It touches only the *current* residence, never the
+childhood hometown, so remote memory is preserved. Re-driven: CDR 3 now answers
+"where are you?" with "I do not know", while "where did you grow up?" still surfaces
+its Rutland fragment; CDR 2 hedges ("… as far as I recall"). Pinned by six tests.
+
+**Not done until the adversarial drive against a real model is clean.** The mechanics
+are green, but the sprint is judged — as 2A, 2B and 2C were — on a hand-drive against
+qwen3:14b: delayed recall 0/3 with a cue that rescues nothing, the topic lost within
+an exchange, day/month/season/place all gone including at home, at least one honest
+failure to place the caregiver with no invented identity, speech visibly simpler than
+CDR 2's, a genuine remote fragment surfacing without elaboration, constant repetition,
+no insight — and, still and always, no confabulation. The numbers in `cdr3.yaml` are
+starting values and should be expected to move once the transcript says where.
 
 ### Not in Phase 2 — do not build these
 

@@ -29,6 +29,7 @@ from personasim.impairment import (
 from personasim.impairment.comprehension import retain_question
 from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.hold import ELISION, fade_transcript
+from personasim.impairment.orientation import apply_place_gate
 from personasim.impairment.profile import Orientation, RecallGate, WorkingMemoryHold
 from personasim.impairment.recall import _encoding
 from personasim.impairment.voice import render_now_impaired, voice_notes
@@ -221,6 +222,40 @@ class TestProfiles:
         # Insight is largely lost at CDR 2, where CDR 1 preserved it.
         assert cdr1.insight
         assert not cdr2.insight
+
+    def test_cdr3_is_a_rung_past_cdr2(self) -> None:
+        # The last rung, same discipline: CDR 2's mechanisms turned up, plus the
+        # qualitative jumps — place from "hazy" to "lost", person from "confident"
+        # to "unfamiliar" (a new axis, not a new code path), and simplified speech.
+        cdr2 = load_profile(PROFILES / "cdr2.yaml")
+        cdr3 = load_profile(PROFILES / "cdr3.yaml")
+
+        assert cdr3.gates_recall
+        assert cdr3.is_impaired
+        # The CDR 3 jumps: place is lost, person no longer recognised, speech simple.
+        assert cdr3.orientation.place == "lost"
+        assert cdr2.orientation.place == "hazy"
+        assert cdr3.orientation.person == "unfamiliar"
+        assert cdr2.orientation.person == "confident"
+        assert cdr3.speech.simplified_language
+        assert not cdr2.speech.simplified_language
+        assert cdr3.orientation.day_and_date == "mistaken"
+        # Recent memory: wider window, higher ladder, weaker cueing still.
+        assert cdr3.recall.recent_window_days > cdr2.recall.recent_window_days
+        assert cdr3.recall.withhold_below > cdr2.recall.withhold_below
+        assert cdr3.recall.gist_below > cdr2.recall.gist_below
+        assert cdr3.recall.cue_weight < cdr2.recall.cue_weight
+        # Only fragments remain: withhold_below sits above the encoding ceiling
+        # (encoding < 1.0), so an uncued recent memory is *always* withheld.
+        assert cdr3.recall.withhold_below > 1.0
+        # Word-finding more frequent; overrun more certain; the window collapses to
+        # its floor — even the current exchange now fades (crisp_turns 0).
+        assert cdr3.speech.word_finding_probability > cdr2.speech.word_finding_probability
+        assert cdr3.speech.long_question_probability > cdr2.speech.long_question_probability
+        assert cdr3.hold.crisp_turns == 0
+        assert (cdr3.hold.capacity or 0) < (cdr2.hold.capacity or 0)
+        # Insight was already lost at CDR 2 and stays lost.
+        assert not cdr3.insight
 
     def test_thresholds_must_be_ordered(self) -> None:
         with pytest.raises(ValueError, match="gist_below"):
@@ -700,6 +735,153 @@ class TestVoice:
         assert "time has come loose" not in text  # no mistaken-time middle
         assert "could not swear" not in text  # no uncertain-time middle
 
+    def test_the_lost_place_withholds_month_year_and_where_she_is(self) -> None:
+        # CDR 3: orientation to her own person only. The month, year and place are all
+        # withheld from the frame — she is never handed them — so nothing false is put
+        # in her mouth. What the frame still asserts is who she herself is.
+        profile = load_profile(PROFILES / "cdr3.yaml")
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+
+        assert text is not None
+        assert "July 2026" not in text  # month and year are gone now
+        assert "5:05" not in text  # the time is withheld
+        assert "Tuesday" not in text  # weekday still withheld
+        assert "no longer know where you are" in text  # place is lost
+        assert "who you are — your name" in text  # her own person still holds
+
+    def test_the_unfamiliar_person_withholds_who_is_speaking_but_keeps_the_split(
+        self,
+    ) -> None:
+        # The last axis. Who the speaker is is withheld, but two lines are not: she
+        # always knows the speaker is someone else (the I/you split), and she must
+        # never invent an identity for them — unfamiliarity, never misidentification.
+        profile = load_profile(PROFILES / "cdr3.yaml")
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+
+        assert text is not None
+        assert "who you are speaking with does not always come to you" in text
+        assert "they are not you" in text  # the I/you split is preserved
+        assert "Never decide they are someone in particular" in text  # no misID
+
+    def test_an_unfamiliar_person_alone_still_recognises_the_frame(self) -> None:
+        # Composable: person degrades independently. A confident clock and place with
+        # only person unfamiliar still renders a frame, with the recognition fragment
+        # and none of the time/place-degradation prose.
+        profile = CognitiveProfile(name="person-only", orientation=Orientation(person="unfamiliar"))
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+
+        assert text is not None
+        assert "does not always come to you" in text
+        assert "no longer know where you are" not in text  # place still confident
+        assert "time has come loose" not in text  # time still confident
+        # The full frame no longer claims she knows who she is speaking with.
+        assert "who you are speaking with — with ordinary" not in text
+
+    def test_simplified_speech_is_a_voice_note_only_at_cdr3(self) -> None:
+        # The register lives in `voice_notes`, not the clock, and fires every turn
+        # (it is a manner, not a moment). It is absent at every earlier severity.
+        cdr3 = load_profile(PROFILES / "cdr3.yaml")
+        assert "Short sentences" in voice_notes(cdr3, trace=trace_of())
+        assert "Short sentences" not in voice_notes(CDR1, trace=trace_of())
+        assert "Short sentences" not in voice_notes(HEALTHY, trace=trace_of())
+
+
+def _residence() -> SemanticMemory:
+    """Her current home — the memory the drive showed CDR 3 reciting as its present
+    location. Authored (uuid5), so the recall gate never touches it."""
+    return authored(
+        SemanticMemory(
+            summary="I live in Boston, in a third-floor walk-up in Jamaica Plain",
+            keywords=["boston", "home", "jamaica plain", "live", "city"],
+            subject="self",
+            attribute="city",
+            value="Boston",
+        )
+    )
+
+
+def _hometown() -> SemanticMemory:
+    """Her childhood home — remote memory, preserved at every stage. The place gate
+    must never touch it, or 'where did you grow up?' would fail at CDR 3."""
+    return authored(
+        SemanticMemory(
+            summary="I grew up in Rutland, Vermont",
+            keywords=["rutland", "vermont", "hometown", "grew"],
+            subject="self",
+            attribute="hometown",
+            value="Rutland, Vermont",
+        )
+    )
+
+
+class TestPlaceGate:
+    """Orientation to place, degraded at the retrieval seam — the fix for the CDR 3
+    drive, where the residence memory was recited as a present location."""
+
+    def test_confident_place_leaves_the_residence_untouched(self) -> None:
+        # Healthy through CDR 1: place is confident, so the gate is a no-op and
+        # "where do you live?" answers exactly as Phase 1 did.
+        home = _residence()
+        for profile in (HEALTHY, CDR1, load_profile(PROFILES / "cdr1.yaml")):
+            gated = apply_place_gate(trace_of(retrieved(home, cue=1.0)), profile, _Source(home))
+            assert gated.retrieved and not gated.retrieved[0].hedged
+            assert not gated.withheld
+
+    def test_hazy_place_hedges_the_residence(self) -> None:
+        # CDR 2: she still believes she is home, but cannot be sure — hedged, not gone.
+        home = _residence()
+        profile = load_profile(PROFILES / "cdr2.yaml")
+        gated = apply_place_gate(trace_of(retrieved(home, cue=1.0)), profile, _Source(home))
+
+        assert gated.retrieved and gated.retrieved[0].hedged
+        assert not gated.withheld
+        assert "hedged" in gated.reason
+
+    def test_lost_place_withholds_the_residence(self) -> None:
+        # CDR 3: she cannot place herself at all. The residence is withheld — moved to
+        # the trace, explained, never silently dropped — so she says she does not know
+        # rather than reciting her address as her present location.
+        home = _residence()
+        profile = load_profile(PROFILES / "cdr3.yaml")
+        gated = apply_place_gate(trace_of(retrieved(home, cue=1.0)), profile, _Source(home))
+
+        assert gated.retrieved == []
+        assert [w.memory_id for w in gated.withheld] == [home.id]
+        assert "disoriented to place" in gated.withheld[0].reason
+        # Withheld, not silent: no path to improvisation filling the gap.
+        assert not gated.memory_is_silent
+
+    def test_an_expansion_that_names_the_place_goes_with_its_parent(self) -> None:
+        # The CDR 3 drive's actual leak: retrieval pulled in the dated "I moved to a
+        # third-floor walk-up in Jamaica Plain" as an expansion of the residence, and
+        # it named the place just as squarely. When the residence is withheld, its
+        # expansions must go too — the recall gate's rule, reused.
+        home = _residence()
+        moved = EpisodicMemory(
+            summary="I moved to a third-floor walk-up in Jamaica Plain with two boxes of maps",
+            keywords=["moved", "jamaica plain"],
+            occurred_on=date(1986, 9, 1),
+        ).model_copy(update={"id": memory_id_for("elena-marsh", "moved_in")})
+        profile = load_profile(PROFILES / "cdr3.yaml")
+        trace = trace_of(
+            retrieved(home, cue=1.0),
+            retrieved(moved, cue=0.0, linked_from=home.id),
+        )
+        gated = apply_place_gate(trace, profile, _Source(home, moved))
+
+        assert gated.retrieved == []  # both the residence and its place-naming expansion
+        assert {w.memory_id for w in gated.withheld} == {home.id, moved.id}
+
+    def test_the_childhood_hometown_is_never_touched(self) -> None:
+        # Remote memory is preserved at every stage: "where did you grow up?" must
+        # still surface Rutland even at CDR 3, where the *current* residence is gone.
+        town = _hometown()
+        profile = load_profile(PROFILES / "cdr3.yaml")
+        gated = apply_place_gate(trace_of(retrieved(town, cue=1.0)), profile, _Source(town))
+
+        assert gated.retrieved and not gated.retrieved[0].hedged
+        assert not gated.withheld
+
 
 class TestComprehension:
     # A five-part question: three scene-setting clauses, then the two actual
@@ -879,6 +1061,21 @@ class TestWorkingMemoryHold:
 
         assert note is not None
         assert "slipped" in note
+
+    def test_cdr3_fades_even_the_current_exchange(self) -> None:
+        """crisp_turns 0: registration itself is failing, so the exchange just
+        completed (age 0) can already lose words — a delayed-recall probe that is
+        cue-proof because the list is gone before the cue can arrive. At CDR 0.5 the
+        crisp span held age 0 whole; here nothing is held."""
+        cdr3 = load_profile(PROFILES / "cdr3.yaml")
+
+        faded = 0
+        for i in range(300):
+            turns = [_exchange(" ".join(WORDS))]
+            messages, _ = fade_transcript(turns, turns_seen=1, profile=cdr3, session_id=f"s{i}")
+            if _survivors(messages[0].content, WORDS) < 3:
+                faded += 1
+        assert faded > 0  # the current exchange is no longer safe
 
     def test_a_faded_word_becomes_a_gap_never_another_word(self) -> None:
         """She loses the particulars; she never acquires false ones. A wholly faded

@@ -120,7 +120,7 @@ class Conversation:
         engine = RetrievalEngine(self._source, settings)
         self._engine: RetrievalEngine | ImpairedRetrievalEngine = (
             ImpairedRetrievalEngine(engine, self._profile, self._source, self._session_id)
-            if self._profile.gates_recall
+            if self._profile.gates_recall or self._profile.degrades_place
             else engine
         )
 

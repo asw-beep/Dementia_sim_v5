@@ -18,6 +18,7 @@ from personasim.impairment.comprehension import retain_question
 from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.engine import ImpairedRetrievalEngine
 from personasim.impairment.hold import fade_transcript
+from personasim.impairment.orientation import apply_place_gate
 from personasim.impairment.profile import (
     HEALTHY,
     CognitiveProfile,
@@ -33,6 +34,7 @@ __all__ = [
     "ImpairedRetrievalEngine",
     "ProfileError",
     "WorkingMemoryHold",
+    "apply_place_gate",
     "apply_recall_gate",
     "fade_transcript",
     "inject_word_finding",
