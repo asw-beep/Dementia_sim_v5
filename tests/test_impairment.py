@@ -26,9 +26,10 @@ from personasim.impairment import (
     apply_recall_gate,
     load_profile,
 )
+from personasim.impairment.comprehension import retain_question
 from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.hold import ELISION, fade_transcript
-from personasim.impairment.profile import RecallGate, WorkingMemoryHold
+from personasim.impairment.profile import Orientation, RecallGate, WorkingMemoryHold
 from personasim.impairment.recall import _encoding
 from personasim.impairment.voice import render_now_impaired, voice_notes
 from personasim.llm.base import ChatMessage
@@ -166,6 +167,9 @@ class TestProfiles:
         assert cdr05.hold.fades
         assert not healthy.hold.fades
         assert healthy.hold.capacity is None
+        # Place orientation is confident until CDR 2, at every earlier severity.
+        assert healthy.orientation.place == "confident"
+        assert cdr05.orientation.place == "confident"
 
     def test_cdr1_is_a_rung_past_cdr05(self) -> None:
         # Severity is data: CDR 1 is the same mechanisms turned up. Every knob that
@@ -187,6 +191,36 @@ class TestProfiles:
         # Working memory frays sooner: the crisp span narrows, the whole window shrinks.
         assert cdr1.hold.crisp_turns < cdr05.hold.crisp_turns
         assert (cdr1.hold.capacity or 0) < (cdr05.hold.capacity or 0)
+
+    def test_cdr2_is_a_rung_past_cdr1(self) -> None:
+        # The same discipline again: CDR 2 is CDR 1's mechanisms turned up, plus the
+        # one qualitative jump — orientation to *place* (a new axis, not a new code
+        # path). Every knob moves in the more-impaired direction.
+        cdr1 = load_profile(PROFILES / "cdr1.yaml")
+        cdr2 = load_profile(PROFILES / "cdr2.yaml")
+
+        assert cdr2.gates_recall
+        assert cdr2.is_impaired
+        # The CDR 2 jump: place orientation degrades, time was already mistaken.
+        assert cdr2.orientation.place == "hazy"
+        assert cdr1.orientation.place == "confident"
+        assert cdr2.orientation.day_and_date == "mistaken"
+        # Recent memory: wider window, higher ladder, weaker cueing.
+        assert cdr2.recall.recent_window_days > cdr1.recall.recent_window_days
+        assert cdr2.recall.withhold_below > cdr1.recall.withhold_below
+        assert cdr2.recall.gist_below > cdr1.recall.gist_below
+        assert cdr2.recall.cue_weight < cdr1.recall.cue_weight
+        # No recent memory ever comes back crisp: gist_below sits above the reach
+        # ceiling (encoding < 1.0 plus cue_weight times cue, cue <= 1.0).
+        assert cdr2.recall.gist_below > 1.0 + cdr2.recall.cue_weight
+        # Word-finding more frequent; the working-memory window collapses further.
+        assert cdr2.speech.word_finding_probability > cdr1.speech.word_finding_probability
+        assert cdr2.speech.long_question_probability > cdr1.speech.long_question_probability
+        assert cdr2.speech.long_question_clauses < cdr1.speech.long_question_clauses
+        assert (cdr2.hold.capacity or 0) < (cdr1.hold.capacity or 0)
+        # Insight is largely lost at CDR 2, where CDR 1 preserved it.
+        assert cdr1.insight
+        assert not cdr2.insight
 
     def test_thresholds_must_be_ordered(self) -> None:
         with pytest.raises(ValueError, match="gist_below"):
@@ -581,48 +615,14 @@ class TestClinicalRates:
 
 class TestVoice:
     def test_healthy_says_nothing_at_all(self) -> None:
-        gone = trace_of()
-        assert voice_notes(HEALTHY, turn=4, user_message="a, b, c, d, and e?", trace=gone) == ""
+        assert voice_notes(HEALTHY, trace=trace_of()) == ""
         assert render_now_impaired(HEALTHY) is None
 
     def test_word_finding_is_no_longer_a_prompt_fragment(self) -> None:
         """It moved out of the seam entirely. The model would not perform it, so the
         prompt no longer asks — `impairment.disfluency` performs it on the output."""
         profile = load_profile(PROFILES / "cdr05.yaml")
-        empty = trace_of()
-        notes = "\n".join(
-            voice_notes(
-                profile, turn=turn, user_message="how are you?", trace=empty, session_id="s"
-            )
-            for turn in range(60)
-        )
-        assert "will not come to you" not in notes  # the old fragment is gone
-
-    def test_a_long_question_can_overrun_her_but_a_short_one_never_does(self) -> None:
-        profile = load_profile(PROFILES / "cdr05.yaml")
-        empty = trace_of()
-        long_message = (
-            "Tell me about your wedding, who was there, what the weather was like, "
-            "and whether your father made a speech?"
-        )
-
-        overrun = [
-            "got away from you"
-            in voice_notes(
-                profile, turn=turn, user_message=long_message, trace=empty, session_id="s"
-            )
-            for turn in range(40)
-        ]
-        short = [
-            voice_notes(
-                profile, turn=turn, user_message="How are you?", trace=empty, session_id="s"
-            )
-            for turn in range(40)
-        ]
-
-        assert any(overrun)  # sometimes she loses the thread
-        assert not all(overrun)  # usually she copes — this is CDR 0.5, not CDR 2
-        assert all("got away from you" not in note for note in short)
+        assert "will not come to you" not in voice_notes(profile, trace=trace_of())
 
     def test_insight_fires_exactly_when_a_memory_was_withheld(self) -> None:
         memory = recent_episode()
@@ -635,8 +635,8 @@ class TestVoice:
             now=NOW,
         )
 
-        spoken = voice_notes(CDR05, turn=1, user_message="hello", trace=withheld)
-        silent = voice_notes(CDR05, turn=1, user_message="hello", trace=trace_of())
+        spoken = voice_notes(CDR05, trace=withheld)
+        silent = voice_notes(CDR05, trace=trace_of())
 
         assert "slip away" in spoken
         assert silent == ""
@@ -646,15 +646,13 @@ class TestVoice:
         # she told the '…' gaps are gone and not to guess across them. This is the
         # counter to "apple, slice, lemon" — the second two lifted from a later turn.
         empty = trace_of()
-        with_fade = voice_notes(CDR1, turn=1, user_message="hi", trace=empty, faded=True)
-        without = voice_notes(CDR1, turn=1, user_message="hi", trace=empty, faded=False)
+        with_fade = voice_notes(CDR1, trace=empty, faded=True)
+        without = voice_notes(CDR1, trace=empty, faded=False)
 
         assert "gone from me" in with_fade
         assert "gone from me" not in without
         # Healthy never fades, so the guard cannot appear even if `faded` is forced.
-        assert "gone from me" not in voice_notes(
-            HEALTHY, turn=1, user_message="hi", trace=empty, faded=True
-        )
+        assert "gone from me" not in voice_notes(HEALTHY, trace=empty, faded=True)
 
     def test_the_uncertain_clock_still_tells_the_truth(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
@@ -676,18 +674,100 @@ class TestVoice:
         assert "Tuesday" not in text  # but the weekday is withheld — she has lost it
         assert "come loose" in text
 
-    def test_a_session_replays_its_speech_identically(self) -> None:
-        profile = load_profile(PROFILES / "cdr05.yaml")
-        empty = trace_of()
+    def test_the_hazy_place_withholds_where_she_is_and_the_hour(self) -> None:
+        # CDR 2: the new axis. Place and the time of day are withheld from the frame
+        # too, so she cannot recite them — she is disoriented in space and the part of
+        # the day, not fed a false location. Month, year and person stay confident.
+        profile = load_profile(PROFILES / "cdr2.yaml")
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
-        first = voice_notes(
-            profile, turn=7, user_message="and how have you been?", trace=empty, session_id="v1"
-        )
-        again = voice_notes(
-            profile, turn=7, user_message="and how have you been?", trace=empty, session_id="v1"
-        )
+        assert text is not None
+        assert "July 2026" in text  # month and year still hold
+        assert "5:05" not in text  # the exact time is withheld — she cannot read it off
+        assert "Tuesday" not in text  # weekday still withheld (time is still mistaken)
+        assert "setting has begun to slip" in text  # the place haze is present
+        assert "morning for afternoon" in text  # and the part of the day runs together
 
+    def test_a_hazy_place_alone_still_renders_a_frame(self) -> None:
+        # Composable: place degrades independently of time. A profile with a hazy
+        # place but a confident clock still produces a frame (it is not None), and the
+        # place haze appears without any time-degradation prose.
+        profile = CognitiveProfile(name="place-only", orientation=Orientation(place="hazy"))
+        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+
+        assert text is not None
+        assert "setting has begun to slip" in text
+        assert "time has come loose" not in text  # no mistaken-time middle
+        assert "could not swear" not in text  # no uncertain-time middle
+
+
+class TestComprehension:
+    # A five-part question: three scene-setting clauses, then the two actual
+    # questions at the end — exactly where working memory keeps them.
+    LONG = (
+        "When you moved to Boston, and you were at the survey firm, and Henry was "
+        "with you, did the city change much, and did you ever think of leaving?"
+    )
+    # `long_question_clauses` is 2 in cdr1.yaml, so the tail she keeps is the last two.
+    TAIL = "did the city change much, and did you ever think of leaving?"
+
+    def test_healthy_hears_the_whole_question(self) -> None:
+        heard, note = retain_question(self.LONG, HEALTHY, session_id="s", turn=1)
+        assert heard == self.LONG
+        assert note is None
+
+    def test_a_short_question_is_never_trimmed(self) -> None:
+        profile = load_profile(PROFILES / "cdr1.yaml")
+        for turn in range(40):
+            heard, note = retain_question("How are you today?", profile, session_id="s", turn=turn)
+            assert heard == "How are you today?"
+            assert note is None
+
+    def test_a_long_question_sometimes_overruns_and_keeps_only_its_tail(self) -> None:
+        profile = load_profile(PROFILES / "cdr1.yaml")
+        results = [retain_question(self.LONG, profile, session_id="s", turn=t) for t in range(40)]
+        trimmed = [(h, n) for (h, n) in results if n is not None]
+        coped = [(h, n) for (h, n) in results if n is None]
+
+        assert trimmed  # sometimes she loses the thread
+        assert coped  # usually she copes — this is CDR 1, not a total collapse
+
+        heard, note = trimmed[0]
+        assert heard == self.TAIL  # only the last two parts survive…
+        assert heard in self.LONG  # …verbatim — a suffix of what was asked, never invented
+        assert note is not None and "kept only the last 2" in note
+
+    def test_the_overrun_is_deterministic_per_session_and_turn(self) -> None:
+        profile = load_profile(PROFILES / "cdr1.yaml")
+        first = retain_question(self.LONG, profile, session_id="v1", turn=7)
+        again = retain_question(self.LONG, profile, session_id="v1", turn=7)
         assert first == again
+
+    def test_a_trailing_tag_is_not_a_second_part(self) -> None:
+        # "Do you have a dog, by the way?" is one question with a courtesy tacked on,
+        # not two parts. The tag must not tip a simple question into an overrun — the
+        # CDR 2 drive had it trim to "by the way" and answer a non-sequitur.
+        profile = load_profile(PROFILES / "cdr2.yaml")  # long_question_clauses == 1
+        for turn in range(40):
+            heard, note = retain_question(
+                "Do you have a dog, by the way?", profile, session_id="s", turn=turn
+            )
+            assert heard == "Do you have a dog, by the way?"
+            assert note is None
+
+    def test_an_overrun_drops_a_trailing_tag_and_keeps_the_real_question(self) -> None:
+        # A genuine multi-part question with a tag on the end: the tag is dropped, and
+        # what survives is the last *substantive* clause, not the courtesy.
+        profile = load_profile(PROFILES / "cdr2.yaml")  # keeps the last 1
+        message = "You've been getting a lot of rest, and do you have a dog, by the way?"
+        results = [retain_question(message, profile, session_id="s", turn=t) for t in range(40)]
+        trimmed = [(h, n) for (h, n) in results if n is not None]
+
+        assert trimmed  # a real two-part question overruns at CDR 2
+        heard, note = trimmed[0]
+        assert heard == "do you have a dog"  # the tag is gone, the question is kept
+        assert "by the way" not in heard
+        assert note is not None and "2-part question overran" in note
 
 
 def _exchange(user: str, persona: str = "Mm, yes.") -> Turn:

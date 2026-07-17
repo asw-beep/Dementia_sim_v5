@@ -26,6 +26,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Sureness = Literal["confident", "uncertain", "mistaken"]
 
+#: Orientation to *place*, degraded a sprint later than time. Its own short ladder,
+#: not `Sureness`: place has no "uncertain-but-corrects" rung — she either knows
+#: where she is or she does not reliably. ``hazy`` is CDR 2's intermittent
+#: disorientation (unsure in unfamiliar or changed surroundings, fine at home);
+#: ``lost`` — a constant "where am I?" — is CDR 3, and is added when that sprint
+#: gives it a consumer, not before.
+PlaceSense = Literal["confident", "hazy"]
+
 
 class ProfileError(Exception):
     """The profile file is missing, unreadable, or not a possible profile."""
@@ -85,9 +93,12 @@ class RecallGate(BaseModel):
 class Orientation(BaseModel):
     """What she is sure of about time and place. Consumed by `impairment.voice`.
 
-    One axis, three severities — and the axis is *time*. Month, year, place, and the
-    person she is speaking with stay confident here; they gain fields only in the
-    sprint that degrades them (poor orientation to place is CDR 2, not CDR 1).
+    Two axes now, degraded a sprint apart. **Time** (`day_and_date`) frays first, at
+    CDR 0.5; **place** frays at CDR 2. Month, year, and the person she is speaking
+    with still stay confident — they gain fields only in the sprint that degrades
+    them.
+
+    Time — `day_and_date`:
 
     - ``confident`` — healthy. The clock is exactly what `render_now` tells it.
     - ``uncertain`` — CDR 0.5. She knows the weekday is slippery and second-guesses
@@ -99,11 +110,21 @@ class Orientation(BaseModel):
       track, and does **not** perform the tidy self-correction that arrives at the
       right answer. This is disorientation, not a fabricated fact: nothing false is
       injected, and orientation is stored nowhere, so no memory is touched.
+
+    Place — `place`:
+
+    - ``confident`` — healthy through CDR 1. She knows where she is, easily.
+    - ``hazy`` — CDR 2. She is oriented in familiar surroundings but grows unsure
+      when they are unfamiliar or have changed — and the same haze runs the parts of
+      the day together (morning for afternoon). Like the clock, this *withholds* the
+      easy confidence the frame otherwise asserts; it never puts a false place in her
+      mouth, and stores nothing. A constant "where am I?" is CDR 3, not this.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     day_and_date: Sureness = "confident"
+    place: PlaceSense = "confident"
 
 
 class WorkingMemoryHold(BaseModel):

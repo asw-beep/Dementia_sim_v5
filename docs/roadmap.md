@@ -1,7 +1,7 @@
 # Roadmap
 
-**Status: Phase 1 complete, end to end. Phase 2 underway — Sprint 2A (CDR 0.5)
-declared complete by the owner; Sprint 2B (CDR 1) is current.**
+**Status: Phase 1 complete, end to end. Phase 2 underway — Sprints 2A (CDR 0.5) and
+2B (CDR 1) declared complete by the owner; Sprint 2C (CDR 2) is next.**
 
 Phase 1 was built waterfall, because a healthy persona is one thing and either
 works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
@@ -12,8 +12,8 @@ each independently shippable:
 | ----- | ------ | ----- | ------ |
 | 1 | — | Healthy human persona | ✅ Complete |
 | 2 | 2A | CDR 0.5 — very mild impairment | ✅ Complete |
-| 2 | 2B | **CDR 1 — mild** | 🔶 **Current** (mechanics built, drive pending) |
-| 2 | 2C | CDR 2 — moderate | ⬜ |
+| 2 | 2B | CDR 1 — mild | ✅ Complete |
+| 2 | 2C | **CDR 2 — moderate** | 🔶 **Current** (built; drive clean, owner sign-off pending) |
 | 2 | 2D | CDR 3 — severe | ⬜ |
 | 3 | — | Assessment mode (caregiver predicts a CDR; system reveals and explains) | ⬜ |
 | 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
@@ -139,15 +139,19 @@ yes, Sprint 2A ships. Finer clinical detail comes after that is true, not before
 - ✓ The healthy architecture is untouched (and `healthy.yaml` still behaves exactly
   as Phase 1 did — the regression suite proves it)
 
-### Sprint 2B — CDR 1 🔶 (current — mechanics built, drive pending)
+### Sprint 2B — CDR 1 ✅ (declared complete by the owner)
+
+> Two adversarial drives against qwen3:14b (16 probes, then a focused re-drive) are
+> clean, and both open issues below are resolved. The owner has declared the sprint
+> complete and Sprint 2C is next. `cdr1.yaml` remains data and may still be tuned.
 
 Clinical spec: `docs/disease_profiles/CDR1.md` (ground truth). Design:
-`docs/design/sprint2_cdr1.md`. Built: `data/profiles/cdr1.yaml`, and one new
-mechanism — a third time-orientation level (`mistaken`) in `impairment/profile.py`
-and `impairment/voice.py`. All Phase 1 and 2A tests pass unmodified; +3 new tests
-pin CDR 1 as a strict rung past CDR 0.5 and the new `mistaken` clock. **Not done
-until the adversarial drive against a real model is clean and the numbers are
-tuned** — the same bar Sprint 2A was held to.
+`docs/design/sprint2_cdr1.md`. Built: `data/profiles/cdr1.yaml`, a third
+time-orientation level (`mistaken`) in `impairment/profile.py` and
+`impairment/voice.py`, and — after the drive — one new mechanism,
+`impairment/comprehension.py` (the long-question overrun, below). All Phase 1 and 2A
+tests pass unmodified; new tests pin CDR 1 as a strict rung past CDR 0.5, the
+`mistaken` clock, and the comprehension trim.
 
 Same architecture, different profile. Working memory weaker; orientation
 occasionally wrong; conversation continuity sometimes lost; retrieval more often
@@ -174,7 +178,12 @@ CDR 0.5, turned up by the numbers rather than by a new "repeat" instruction.
 
 **The one success criterion** (the mirror of 2A's): can a caregiver place her at
 *mild dementia* over a short interview, while still recognising the same woman? That
-is judged on a transcript, and the drive is where `cdr1.yaml` gets tuned.
+is judged on a transcript, and the drive is where `cdr1.yaml` gets tuned. **Judged
+met** on the second structured drive (16 probes): day-of-week lost, breakfast came
+back as gist only, one visible word-finding stumble, insight voiced unforced, and
+the multi-part question overran — while the wedding, her mother and her brother were
+recalled perfectly and she remained, unmistakably, the same woman. Closed cast and
+caregiver scope held throughout; nothing was confabulated.
 
 **Observed in the first structured drive (real model, qwen3:14b, 14 probes).** Most
 of the profile landed on the first pass, which is the "severity is data" bet paying
@@ -220,6 +229,30 @@ was "confirm these are right, and fix what the drive actually broke."
    literally ("… lemon … bread …"); the shipped wording names no glyph and, re-driven,
    produced the clean CDR-1 miss: *"Table. Penny. … I cannot recall the third."* — 2
    of 3, the last declined, zero intrusion.
+3. **Multi-part comprehension — RESOLVED (input trim), found in the second drive.**
+   Handed a deliberately overloading five-part question, she answered *every* part
+   flawlessly — the exact deficit the profile says she can no longer manage. The cause
+   was the same as word-finding #1: `long_question` was a soft prompt fragment
+   (*"you did not keep all of it, answer the part you are surest of"*), and I confirmed
+   it *fired* that turn — qwen3:14b simply read all five parts and answered them. A
+   prompt cannot deliver a comprehension deficit against a capable model. The fix is
+   the input-side twin of `disfluency`: `impairment/comprehension.py` trims the
+   question to its last `long_question_clauses` parts **before the model sees it**, so
+   she cannot answer the earlier parts — there is nothing there to answer, the same
+   structural guarantee as formation never seeing the reply. Retrieval and formation
+   still read the *full* message, so a fact disclosed in a dropped clause is remembered
+   though not answered; the closed cast is untouched. It fires at
+   `long_question_probability`, hashed per (session, turn) so a session replays
+   identically, and the trace records *"a 5-part question overran; kept only the last
+   2"*. Re-driven: a five-part and a four-part question each overran to their last two
+   parts, a second four-part one *coped* (usually she does — this is CDR 1, not CDR 2),
+   and a short question was untouched. The soft fragment is gone from `voice.py`.
+
+   **Delayed recall (3/3) — accepted as-is by the owner.** The second drive's
+   three-word probe came back 3/3 rather than the ~1/3 the profile intends. The owner's
+   call is to leave the `hold` numbers as they are; it is recorded here, not silently
+   left. If a later review wants the sharper miss, it is a `hold` (`crisp_turns`/
+   `fade_turns`) tuning, no new code.
 
 **Resolved from the drive:** she called the caregiver *"my caregiver"*, which the
 healthy-persona *Who is in the room* rule appeared to forbid. Decision (owner): from
@@ -228,12 +261,61 @@ leak. The rule is now universalised — the prompt wording is unchanged, but its
 "never let her speak *as* the caregiver or hand over her own home", not "never tell
 her she is looked after". See `CLAUDE.md` *Who is in the room* and `render_speaker`.
 
-### Sprint 2C — CDR 2 ⬜
+### Sprint 2C — CDR 2 🔶 (current — built, drive clean, owner sign-off pending)
 
 ADLs begin to degrade — **not because a prompt says so, but because cognition now
 fails often enough that it shows.** Repeated questions, lost topics, uncertainty,
 difficulty following an explanation. These are consequences of the profile, never
 instructions in it.
+
+Clinical spec: `docs/disease_profiles/CDR2.md` (ground truth). Design:
+`docs/design/sprint3_cdr2.md`. Built: `data/profiles/cdr2.yaml`, and one new
+mechanism — a **place axis** on `Orientation` (`PlaceSense = confident | hazy`) with
+its branch in `impairment/voice.py`'s clock. All Phase 1, 2A and 2B tests pass
+unmodified; new tests pin CDR 2 as a strict rung past CDR 1, the healthy `place`
+default, the hazy-place frame, and the tag-aware trim below.
+
+Same architecture, different profile — the third time the "severity is data" bet
+pays. Everything but the place axis is a number turned up a rung: recall window
+180→365d and thresholds raised (no recent memory ever crisp — `gist_below` sits above
+the reach ceiling), the working-memory fade sharper (`fade_turns` 5→3, delayed recall
+≈0/3), word-finding 0.30→0.45, the long-question limit 2→1 and its probability
+0.65→0.85, and `insight` **flipped off** — the loss of insight `cdr1.yaml` already
+named as CDR 2's.
+
+**The one new mechanism — orientation to place (`hazy`).** CDR 1 kept place and
+person confident and degraded only time; `Orientation`'s own docstring reserved place
+for "the sprint that degrades them". `hazy` withholds *where she is* and *the time of
+day* from the clock frame (as `mistaken` withholds the weekday), so she is oriented in
+familiar surroundings but loses her bearings when they are unfamiliar or changed, and
+morning runs into afternoon. It withholds a confidence she has lost; it never injects
+a false place, and orientation is stored nowhere. A constant "where am I?" is CDR 3.
+
+**Two structured drives against qwen3:14b are clean.** The place axis landed on the
+first pass — *"I would say it is morning, but I cannot be certain… the hour slips"* at
+5pm, *"I believe I am in my home. I cannot be certain without looking around"* — and
+recall collapsed as intended (breakfast withheld or gist, delayed recall 0/3), with
+frequent word-finding, an intact wedding, no confabulation, and no spontaneous insight.
+
+**Open issue from the drive — RESOLVED (tag-aware trim).** With `long_question_clauses`
+at 1, the comprehension trim kept the *last raw clause*, which is often a trailing
+courtesy: *"Do you have a dog, by the way?"* trimmed to "by the way", and she answered
+a non-sequitur about not knowing the day — reading as CDR 3 fluctuation, not CDR 2. The
+fix teaches `impairment/comprehension.py` a curated set of discourse tags (like
+`disfluency._SKIP`): a trailing tag no longer counts toward the part total (so a simple
+question with a courtesy tacked on is not treated as multi-part) and is dropped rather
+than kept as the sole surviving clause. Re-driven, the same probes came back clean —
+*"Yes, I have a dog. His name is Compass"* — while genuine multi-part questions still
+overrun to their last real part. Pinned by two regression tests.
+
+**Deliberately not built** (same discipline as 2B): community affairs, home and
+hobbies, personal care, and the planning/judgment side of executive function have no
+conversational consumer and stay out of `cdr2.yaml`; executive function is expressed
+only where it has one — the long-question overrun. Repetition stays emergent from the
+sharper fade. "Confident about a wrong detail" and "confuse recent events with older
+ones" are admitted **only** as orientation (a wrong day or place) and as loss of the
+*when* — never as invented biography or an injected false timeline; the closed cast is
+untouched. See `docs/design/sprint3_cdr2.md`.
 
 ### Sprint 2D — CDR 3 ⬜
 

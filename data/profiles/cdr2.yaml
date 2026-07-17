@@ -1,0 +1,94 @@
+# CDR 2 — moderate dementia. Clinical ground truth:
+# docs/disease_profiles/CDR2.md; design: docs/design/sprint3_cdr2.md. It is the
+# step up from cdr1.yaml, and the numbers here are set *relative to that file*:
+# the same mechanisms, turned up until the impairment is obvious within a few
+# exchanges and interferes with everyday functioning, not just difficult tasks.
+# The one-line test for CDR 2 is the mirror of CDR 1's — a caregiver should
+# reasonably suspect *moderate* dementia over a short interview, while still
+# recognising the same person.
+#
+# Only the domains that already have a mechanism are expressible here. The
+# markedly-impaired clinical picture — community affairs, home and hobbies,
+# personal care, and the planning/judgment side of executive function — lives in
+# CDR2.md; a parameter nothing reads would be a lie in a config file, so those
+# domains stay absent, not zeroed. Executive function is expressed only where it
+# has a consumer: the long-question overrun below.
+#
+# These values are authored ahead of the Sprint 2C drive and are provisional:
+# like every profile before them, they are meant to be corrected against a real
+# clinical drive, not trusted on paper. The structure is right; the exact
+# thresholds are a first estimate.
+
+name: cdr2
+label: "CDR 2 — moderate dementia"
+
+recall:
+  # Recent memory loss reaches back further still at CDR 2, so the gateable
+  # "recent" window widens again. Her authored life is never in here, at any age;
+  # only what she acquired in conversation, and the everyday details she
+  # improvised, can be gated.
+  recent_window_days: 365
+
+  # Reach = encoding + cue_weight × cue, exactly as before. What changes is where
+  # the rungs sit and how much a cue can lift her:
+  #
+  #   reach < withhold_below → does not come to mind
+  #   reach < gist_below     → the shape of it, without the particulars
+  #   otherwise              → recalled, but hedged — never crisp
+  #
+  # At CDR 2 the whole distribution drops another rung. `withhold_below` rises so
+  # that a direct, well-cued question now blanks much of the time; `gist_below`
+  # rises *above the reach ceiling* (encoding < 1.0 plus cue_weight × cue ≤ 0.30
+  # can never reach 1.40), so **no recent memory ever comes back crisp** — the
+  # best case is hedged gist, the common case is withheld. `cue_weight` falls, so
+  # cueing still helps — it is preserved in CDR 2 — but it rescues less, and it
+  # rescues the gist, not the detail. This is "recent information is no longer
+  # retained reliably enough to support daily functioning," made structural.
+  withhold_below: 0.80
+  gist_below: 1.40
+  cue_weight: 0.30
+
+orientation:
+  # Time is already "mistaken" from CDR 1 — the weekday and date are withheld, she
+  # can be wrong and does not tidily self-correct. That level still fits CDR 2, so
+  # it is unchanged. The new degradation is *place* (poor orientation to place is
+  # the CDR 2 jump): "hazy" withholds where-she-is and the part of the day from the
+  # frame she is given, so she is oriented in familiar surroundings but loses her
+  # bearings when they are unfamiliar or changed, and morning runs into afternoon.
+  # Nothing false is injected and orientation is stored nowhere, so no memory is
+  # touched. A constant "where am I?" is CDR 3, not this.
+  day_and_date: mistaken
+  place: hazy
+
+speech:
+  # Clinically "frequent and obvious" now: word-finding is a plain feature of her
+  # speech. Raised from 0.30 to ~0.45 — it stumbles on more turns, still one word
+  # per turn, so it never tips into the robotic litany the injector guards against.
+  word_finding_probability: 0.45
+  # She can hold only one part of a multi-part instruction now: a question with
+  # more than one part may overrun her working memory…
+  long_question_clauses: 1
+  # …and at CDR 2 it usually does. She "loses track of multi-part instructions
+  # quickly" — raised from 0.65 to 0.85, so only occasionally does she keep the
+  # whole of a two-part question.
+  long_question_probability: 0.85
+
+# Insight is now largely lost — the CDR 2 severity the cdr1.yaml comment named. At
+# CDR 1 the flag stayed true because awareness was partial; at CDR 2 the clinic no
+# longer expects her to reliably notice her own lapses ("appear confident about a
+# wrong detail"), so the insight fragment stops firing. The boolean cannot express
+# "largely gone", so false is the honest approximation; a flicker of awareness that
+# survives is carried by the persona, not this flag. (Turning it *off* here is what
+# cdr1.yaml said CDR 2 would do.)
+insight: false
+
+# The delayed-recall probe collapses at CDR 2. Immediate registration is still
+# only mildly affected, so the current exchange is held whole (crisp_turns stays
+# 1) — but the fade span shortens sharply, so words slip out of a recent exchange
+# fast and the whole window is gone within a few turns. Where CDR 1 gave "1 of 3,
+# or a blank rescued in part by a cue", CDR 2 gives roughly "0 of 3" — she forgets
+# the list shortly after it is given, which is now stage-appropriate rather than
+# too heavy. Total, cue-proof collapse of even the current exchange is CDR 3.
+hold:
+  crisp_turns: 1
+  fade_turns: 3

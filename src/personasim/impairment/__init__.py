@@ -14,6 +14,7 @@ loaded, every module below is a no-op and the persona behaves exactly as Phase 1
 built her.
 """
 
+from personasim.impairment.comprehension import retain_question
 from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.engine import ImpairedRetrievalEngine
 from personasim.impairment.hold import fade_transcript
@@ -36,4 +37,5 @@ __all__ = [
     "fade_transcript",
     "inject_word_finding",
     "load_profile",
+    "retain_question",
 ]

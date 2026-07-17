@@ -18,6 +18,11 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PORT="${PERSONA_PORT:-8000}"
+# Bind address. Defaults to all interfaces (0.0.0.0) so the persona is reachable from
+# other devices on the LAN. THIS APP HAS NO AUTHENTICATION: anyone who can reach this
+# host on this port can talk to the persona and read everything she has been told.
+# Only run this on a network you trust. Set PERSONA_HOST=127.0.0.1 for loopback only.
+HOST="${PERSONA_HOST:-0.0.0.0}"
 SEED="data/personas/elena.yaml"
 PERSONA="elena-marsh"
 RUNTIME=".run"
@@ -28,6 +33,9 @@ mkdir -p "$RUNTIME"
 
 say()  { printf '  %s\n' "$*"; }
 fail() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
+
+# This host's primary LAN address, for the "reach it from another device" URL.
+lan_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
 
 running() {
   [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
@@ -79,16 +87,18 @@ start() {
   say "seeding $PERSONA…"
   uv run persona seed "$SEED" 2>&1 | sed 's/^/    /'
 
-  say "serving…"
-  # Loopback on purpose. This app has no authentication; binding it to 0.0.0.0 would
-  # hand Elena, and everything she has been told, to anything on the network.
+  say "serving on $HOST…"
+  # Bind address is $HOST (see the top of the file). Default is 0.0.0.0 so other
+  # devices on the LAN can reach it — and since this app has NO authentication, that
+  # hands Elena, and everything she has been told, to anything that can route to this
+  # host. Trusted networks only; PERSONA_HOST=127.0.0.1 puts it back on loopback.
   #
   # `setsid` gives the server its own process group. `uv run` spawns the real server
   # as a *child*, and killing only the parent leaves an orphan holding the port —
   # today `uv` happens to forward the signal, but "happens to" is not a thing to
   # build a shutdown on. The group id is what we record, so `kill` can take down
   # everything `start` brought up, and nothing else.
-  setsid nohup uv run persona serve --port "$PORT" "${profile_arg[@]}" >"$LOGFILE" 2>&1 &
+  setsid nohup uv run persona serve --host "$HOST" --port "$PORT" "${profile_arg[@]}" >"$LOGFILE" 2>&1 &
   echo $! >"$PIDFILE"
 
   for _ in $(seq 30); do
@@ -99,7 +109,13 @@ start() {
       label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
         | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
       say "profile: ${label:-healthy}"
-      printf '\n  ready → http://127.0.0.1:%s\n\n' "$PORT"
+      printf '\n  ready → http://127.0.0.1:%s\n' "$PORT"
+      if [[ "$HOST" == "0.0.0.0" ]]; then
+        ip=$(lan_ip)
+        [[ -n "$ip" ]] && printf '  on the network → http://%s:%s  (reachable from other devices)\n' "$ip" "$PORT"
+        printf '  ⚠ no authentication — anyone on this network can talk to her. Trusted networks only.\n'
+      fi
+      printf '\n'
       exit 0
     fi
     running || { rm -f "$PIDFILE"; fail "the server died on startup. Log:\n$(tail -20 "$LOGFILE")"; }
@@ -147,6 +163,10 @@ stop() {
 status() {
   if running; then
     say "server:  up   → http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    if [[ "$HOST" == "0.0.0.0" ]]; then
+      ip=$(lan_ip)
+      [[ -n "$ip" ]] && say "network: http://$ip:$PORT  (no auth — trusted networks only)"
+    fi
     label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
       | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
     say "profile: ${label:-healthy}"

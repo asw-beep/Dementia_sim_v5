@@ -1,8 +1,16 @@
 """Speech-level difficulty: the behaviours that never touch memory.
 
-Word-finding, losing the thread of a long question, hazy or lost orientation, and
-preserved insight are properties of *speech*, so they live at the prompt seam —
-fragments added to the system prompt on the turns the profile calls for.
+Hazy or lost orientation and preserved insight are properties of *speech*, so they
+live at the prompt seam — fragments added to the system prompt on the turns the
+profile calls for.
+
+Two behaviours that *were* prompt fragments have moved out, for the same reason: a
+soft note cannot deliver a deficit against a capable model. Word-finding is now
+performed on the reply (`impairment.disfluency`); losing the thread of a long
+question is now done by trimming the question before the model sees it
+(`impairment.comprehension`) — the model answered every part of a five-part question
+no matter how the fragment was worded. What is left here is what the seam *can*
+deliver: the clock she is handed, and the admission of a blank she has just hit.
 
 **Probabilities, hashed rather than rolled.** `sha256(session:turn:what)` decides,
 so a session replays identically while the persona is unpredictable within it. The
@@ -36,26 +44,17 @@ byte-for-byte the Phase 1 prompt.
 
 from __future__ import annotations
 
-import hashlib
-import re
 from datetime import datetime
 
 from personasim.impairment.profile import CognitiveProfile
 from personasim.models.trace import MemoryTrace
 
-# Word-finding is no longer asked of the model here. The prompt seam could not
-# deliver it — a soft note produced zero hesitation, an imperative one a robotic
-# litany — so it is performed on the model's output instead, in
-# `impairment.disfluency`. This module keeps the fragments the seam *can* deliver.
-
-LONG_QUESTION = (
-    "That message had several parts, and holding several things at once has become "
-    "genuinely hard for you. You did not keep all of it.\n"
-    "Answer the part you are surest of — and then say, plainly and in your own "
-    "words, that the rest of it got away from you, and ask for it again or ask for "
-    "one thing at a time. Do not quietly answer everything as though you had "
-    "followed it; that is precisely what you can no longer do."
-)
+# Word-finding and the long-question overrun are no longer asked of the model here.
+# The prompt seam could not deliver either — a soft note produced zero effect, an
+# imperative one a robotic caricature — so word-finding is performed on the model's
+# output (`impairment.disfluency`) and the long-question overrun on its input
+# (`impairment.comprehension`). This module keeps the fragments the seam *can*
+# deliver.
 
 INSIGHT = (
     "Something you were just asked about is genuinely not coming to mind, and you "
@@ -88,10 +87,7 @@ FADED_GAP = (
 def voice_notes(
     profile: CognitiveProfile,
     *,
-    turn: int,
-    user_message: str,
     trace: MemoryTrace,
-    session_id: str = "",
     faded: bool = False,
 ) -> str:
     """Every fragment this turn calls for. Empty — and byte-free — when healthy.
@@ -101,7 +97,6 @@ def voice_notes(
     with intrusions. It stays false for a healthy profile, which never fades.
     """
     parts = [
-        _long_question(profile, session_id, turn, user_message),
         _insight(profile, trace),
         FADED_GAP if faded and profile.hold.fades else "",
     ]
@@ -109,9 +104,12 @@ def voice_notes(
 
 
 def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None) -> str | None:
-    """The clock, as she experiences it — or None to leave `render_now` alone.
+    """The clock and the setting, as she experiences them — or None to leave
+    `render_now` alone.
 
-    Two severities, and the difference between them is what the clock hands her:
+    Two axes, degraded a sprint apart, composed here into one frame:
+
+    Time (``day_and_date``):
 
     - ``uncertain`` (CDR 0.5) — the real weekday is still *in the text*, so she can
       second-guess herself and land on the right day, or near it. Confidence
@@ -123,27 +121,54 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
       never injects a false one, and orientation is stored nowhere — no memory is
       touched, exactly as at CDR 0.5.
 
-    Neither needs a probability: the haze is constant, and it only shows when someone
-    asks — which is occasionally.
+    Place (``place``):
+
+    - ``hazy`` (CDR 2) — the *time of day* and *where she is* are **withheld** from
+      the frame too, so she cannot recite them: she is sure enough in familiar
+      surroundings but loses her bearings somewhere unfamiliar or changed, and
+      morning runs into afternoon. Same discipline — the frame stops asserting a
+      confidence she no longer has; it never puts a false place or hour in her mouth.
+
+    None of it needs a probability: the haze is constant, and it only shows when
+    someone asks — which is occasionally.
     """
-    sureness = profile.orientation.day_and_date
-    if sureness == "confident":
+    time_sense = profile.orientation.day_and_date
+    place_hazy = profile.orientation.place == "hazy"
+    if time_sense == "confident" and not place_hazy:
         return None
 
     now = when or datetime.now()
-    frame = (
-        f"Right now it is {now.strftime('%B %Y')}, and the time is "
-        f"{now.strftime('%-I:%M %p').lower()}. You know the month, the year, the time "
-        "of day, where you are, and who you are speaking with — with ordinary, easy "
-        "confidence.\n"
-    )
-    coda = (
-        "Say it as a person would, not as a clock would: asked the time, 'just gone "
-        "five' — nobody recites the minute unless asked for it."
-    )
 
-    if sureness == "uncertain":
-        middle = (
+    # The frame asserts only what still holds. Month, year and the person she is
+    # speaking with are steady at every severity here. The time of day and the place
+    # hold until CDR 2's haze takes them together, so they are handed to her — and so
+    # recitable — only while `place` is confident; under `hazy` they are withheld,
+    # exactly as `mistaken` withholds the weekday.
+    if place_hazy:
+        frame = (
+            f"Right now it is {now.strftime('%B %Y')}. You know the month, the year, "
+            "and who you are speaking with — with ordinary, easy confidence.\n"
+        )
+        coda = (
+            "Say all of this as a person would, not as a clock or a map would — "
+            "vaguely, in your own words, and never reciting a certainty you do not feel."
+        )
+    else:
+        frame = (
+            f"Right now it is {now.strftime('%B %Y')}, and the time is "
+            f"{now.strftime('%-I:%M %p').lower()}. You know the month, the year, the "
+            "time of day, where you are, and who you are speaking with — with ordinary, "
+            "easy confidence.\n"
+        )
+        coda = (
+            "Say it as a person would, not as a clock would: asked the time, 'just gone "
+            "five' — nobody recites the minute unless asked for it."
+        )
+
+    parts = [frame]
+
+    if time_sense == "uncertain":
+        parts.append(
             f"But the exact day — that it is {now.strftime('%A the %-d')} — keeps "
             "slipping from you lately. You believe that is right, and it probably is, "
             "but you could not swear to it. Asked what day it is, answer as someone "
@@ -152,11 +177,11 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
             "calendar. Do not claim a certainty you do not feel, and do not make a "
             "drama of it either — it is a small thing.\n"
         )
-    else:  # mistaken
+    elif time_sense == "mistaken":
         # The exact weekday and date are deliberately absent from the frame above:
         # she has genuinely lost hold of them, so she cannot recite what she is not
         # given. Nothing false is put in her mouth — she is disoriented, not lied to.
-        middle = (
+        parts.append(
             "But time has come loose for you. The day of the week and the date "
             "genuinely escape you now — not a flicker of doubt, as it once was, but a "
             "real gap. Asked what day or date it is, answer as someone who has lost "
@@ -169,43 +194,28 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
             "how things have become.\n"
         )
 
-    return frame + middle + coda
+    if place_hazy:
+        # Place and the part of the day are withheld from the frame, not falsified.
+        # Home stays clear — familiar surroundings hold her — so this reads as CDR 2's
+        # intermittent disorientation, not CDR 3's constant "where am I?".
+        parts.append(
+            "And the setting has begun to slip. In familiar surroundings — your own "
+            "home, a room you know well — you are sure enough where you are. But "
+            "somewhere unfamiliar, or a place that has changed, your bearings loosen "
+            "and you can grow unsure of where you are or how you came to be there. The "
+            "parts of the day run together the same way — morning for afternoon — so "
+            "you are not always certain whether it is early or late. Asked where you "
+            "are, or what part of the day it is, answer as someone whose sense of the "
+            "setting has come loose: say what you believe, and where it genuinely "
+            "escapes you, say so plainly rather than reaching for a certainty you no "
+            "longer have.\n"
+        )
 
-
-def _fires(probability: float, session_id: str, turn: int, what: str) -> bool:
-    """Whether a chance event happens this turn.
-
-    Hashed, not rolled: unpredictable across turns, identical on replay. See
-    `impairment.recall._encoding` — the same argument, for the same reason.
-    """
-    if probability <= 0.0:
-        return False
-    if probability >= 1.0:
-        return True
-    digest = hashlib.sha256(f"{session_id}:{turn}:{what}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") / 2**64 < probability
-
-
-def _long_question(profile: CognitiveProfile, session_id: str, turn: int, user_message: str) -> str:
-    limit = profile.speech.long_question_clauses
-    if limit == 0 or _clause_count(user_message) <= limit:
-        return ""
-    # A long question does not *always* defeat her — at this severity she usually
-    # copes. The overrun is a chance, and the length is what gives it one.
-    if not _fires(profile.speech.long_question_probability, session_id, turn, "long"):
-        return ""
-    return LONG_QUESTION
+    parts.append(coda)
+    return "".join(parts)
 
 
 def _insight(profile: CognitiveProfile, trace: MemoryTrace) -> str:
     if not profile.insight or not trace.withheld:
         return ""
     return INSIGHT
-
-
-def _clause_count(text: str) -> int:
-    """How many parts the caregiver's message has. Rule-based, like every other
-    reading of what a message means: split on clause punctuation and coordinating
-    'and's, count what is left."""
-    parts = re.split(r"[.?!;,]+|\band\b", text)
-    return sum(1 for part in parts if part.strip())

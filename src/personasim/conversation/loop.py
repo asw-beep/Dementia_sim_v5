@@ -23,6 +23,7 @@ import structlog
 from personasim.config import Settings
 from personasim.conversation.improvise import everyday_for, improvise
 from personasim.impairment import HEALTHY, CognitiveProfile, ImpairedRetrievalEngine
+from personasim.impairment.comprehension import retain_question
 from personasim.impairment.disfluency import inject_word_finding
 from personasim.impairment.hold import fade_transcript
 from personasim.impairment.voice import render_now_impaired, voice_notes
@@ -218,20 +219,28 @@ class Conversation:
         if fade_note is not None:
             trace = trace.model_copy(update={"reason": f"{trace.reason}; {fade_note}"})
 
+        # A multi-part question overruns her working memory: only the tail registers,
+        # so the model is handed only the last parts and cannot answer the rest —
+        # there is nothing there to answer. Retrieval (above) and formation (below)
+        # still see the *full* message, so a fact disclosed in a dropped clause is
+        # remembered even though it is not answered this turn. Healthy trims nothing.
+        heard, overrun_note = retain_question(
+            text, self._profile, session_id=self._session_id, turn=self._turn_number
+        )
+        if overrun_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {overrun_note}"})
+
         reply_text = self._llm.generate(
             build_messages(
                 self._persona.identity,
                 trace,
                 self._source,
-                text,
+                heard,
                 history=history,
                 now_text=render_now_impaired(self._profile),
                 voice_notes=voice_notes(
                     self._profile,
-                    turn=self._turn_number,
-                    user_message=text,
                     trace=trace,
-                    session_id=self._session_id,
                     faded=fade_note is not None,
                 ),
             )
