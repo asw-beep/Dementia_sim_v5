@@ -31,56 +31,27 @@ let turns = 0;
 // The worksheet: the CDR's own vocabulary, restricted to what a conversation can
 // show. The three ADL domains are deliberately absent — rating them from a chat
 // would train a lie.
-const CDR_VALUES = [0, 0.5, 1, 2, 3];
-const DOMAINS = [
-  ["memory", "Memory"],
-  ["orientation", "Orientation"],
-  ["judgment", "Judgment", "judgment and problem solving"],
-  ["language", "Language", "supporting observation, not a CDR box"],
-  ["global", "Global CDR"],
-];
+//
+// Domains, rungs and anchor text all come from /api/anchors. They were briefly
+// written out here as well, which is how a page and a server end up disagreeing
+// about what CDR 2 looks like; the coach quotes the same text back after the
+// reveal, so there is exactly one copy and the server holds it.
+let CDR_VALUES = [];
+let DOMAINS = [];
+let ANCHORS = {};
 
-// The anchors, condensed from docs/disease_profiles/CDR*.md — the same ground truth
-// the profiles were built against. They are here to be read *while* rating, which is
-// the whole point: a trainee guessing from feel is not learning the scale. Kept to
-// one line each; the doc is the long form.
-const ANCHORS = {
-  memory: {
-    0: "No memory loss, or slight inconsistent forgetfulness.",
-    0.5: "Consistent slight forgetfulness; the shape of a recent event survives, its details do not.",
-    1: "Moderate loss, worse for recent events; important details go, questions repeat.",
-    2: "Recent material is not retained — conversations forgotten soon after, order and timing confused.",
-    3: "Only fragments remain; new information is lost almost immediately.",
-  },
-  orientation: {
-    0: "Fully oriented.",
-    0.5: "Oriented apart from slight trouble with time — unsure of the date or weekday, and corrects herself.",
-    1: "Moderate difficulty with time relationships; still oriented to place during the interview.",
-    2: "Wrong about date, weekday and recent timing; usually knows the setting, but not always.",
-    3: "Orientation largely lost — time and often place gone; person known only in fragments.",
-  },
-  judgment: {
-    0: "Solves everyday problems well; judgment sound.",
-    0.5: "Everyday judgment intact; only long or multi-part questions cost visible effort.",
-    1: "Complex problems are difficult and practical planning unreliable; social judgment usually holds.",
-    2: "Overwhelmed by planning or sequencing; needs step-by-step prompting, judgment clearly impaired.",
-    3: "Cannot compare options or solve problems; dependent on others for nearly every decision.",
-  },
-  language: {
-    0: "Fluent; no word-finding trouble.",
-    0.5: "Fluent overall, with an occasional pause or a way round a missing word.",
-    1: "Obvious pauses for retrieval and vague wording, still comfortably fluent.",
-    2: "Frequent pauses and broad substitutes — “that thing”, “the place”; effort is audible.",
-    3: "Short phrases, fillers and broken sentences; even familiar things are hard to name.",
-  },
-  global: {
-    0: "Healthy — nothing impaired to observe.",
-    0.5: "Questionable dementia — subtle, and takes a sustained 15–20 minutes to see.",
-    1: "Mild dementia — deficits are obvious and interfere with everyday life.",
-    2: "Moderate dementia — sustained impairment, clear within a short interview.",
-    3: "Severe dementia — the severity is apparent within moments.",
-  },
-};
+async function loadAnchors() {
+  const data = await fetch("/api/anchors").then((r) => r.json());
+  CDR_VALUES = data.rungs;
+  DOMAINS = data.domains.map((d) => [d.key, d.label, d.note]);
+  ANCHORS = Object.fromEntries(
+    Object.entries(data.anchors).map(([domain, rungs]) => [
+      domain,
+      Object.fromEntries(Object.entries(rungs).map(([rung, text]) => [Number(rung), text])),
+    ]),
+  );
+}
+
 let ratings = {};
 let armed = false; // two-step commit: first click arms, second commits
 
@@ -90,6 +61,9 @@ async function loadMode() {
   try {
     const profile = await fetch("/api/profile").then((r) => r.json());
     assessing = Boolean(profile.assessment);
+    // Only assessment mode has a worksheet to anchor, and a failure here must not
+    // cost the chat: an interview with no anchors is degraded, not broken.
+    if (assessing) await loadAnchors();
   } catch {
     assessing = false;
   }
@@ -142,6 +116,7 @@ async function openChat(p) {
   composer.classList.remove("hidden");
   turns = 0;
   setEnabled(true);
+  $("end").classList.remove("hidden");
 
   if (assessing) {
     resetWorksheet();
@@ -157,15 +132,17 @@ async function openChat(p) {
   input.focus();
 }
 
-function bubble(role, text, extra = "") {
+// `into` is the live chat by default; review mode passes its own pane so the same
+// bubble and the same why-panel render the finished interview.
+function bubble(role, text, extra = "", into = messages) {
   const row = document.createElement("div");
   row.className = `row ${role}`;
   const b = document.createElement("div");
   b.className = `bubble ${extra}`;
   b.textContent = text;
   row.append(b);
-  messages.append(row);
-  messages.scrollTop = messages.scrollHeight;
+  into.append(row);
+  if (into === messages) messages.scrollTop = messages.scrollHeight;
   return b;
 }
 
@@ -388,30 +365,150 @@ const fmtCDR = (v) =>
 
 function showReveal(outcome) {
   $("chat-body").classList.add("hidden");
+  // The interview is over and cannot be resumed; offering to end it again is an
+  // invitation to a 404.
+  $("end").classList.add("hidden");
 
   $("reveal-actual").textContent = outcome.actual.label;
   $("reveal-yours").textContent = fmtCDR(outcome.ratings.global);
 
-  // A plain hit-or-miss on the global. The per-domain coaching is Sprint 3C;
-  // until then the evidence ledger below is the explanation.
   const verdict = $("reveal-verdict");
   verdict.textContent = labelMatches(outcome.actual.name, outcome.ratings.global) ? "match" : "miss";
   verdict.className = `verdict ${verdict.textContent}`;
 
+  // Per domain: what you said, and — from the coach — what she actually was, so
+  // the row itself shows where the reading went wrong before any prose is read.
+  const byDomain = Object.fromEntries((outcome.coach ?? []).map((r) => [r.domain, r]));
   const rows = DOMAINS.filter(([key]) => key !== "global").map(([key, label]) => {
+    const reading = byDomain[key];
     const row = document.createElement("div");
-    row.className = "reveal-domain";
-    row.innerHTML = `<span class="ws-label"></span><span class="val"></span>`;
+    row.className = `reveal-domain${reading?.missed ? " missed" : ""}`;
+    row.innerHTML =
+      `<span class="ws-label"></span><span class="val"></span><span class="was"></span>`;
     row.querySelector(".ws-label").textContent = label;
     row.querySelector(".val").textContent = fmtCDR(outcome.ratings[key]);
+    row.querySelector(".was").textContent = reading?.missed
+      ? `she was ${fmtCDR(reading.actual)}`
+      : "";
     return row;
   });
   $("reveal-domains").replaceChildren(...rows);
 
+  showCoach(outcome.coach ?? []);
   $("reveal-report").textContent = outcome.report;
   reveal.classList.remove("hidden");
   reveal.scrollTop = 0;
 }
+
+// The coach: one card per domain, ordered so what you got wrong is read first.
+// Evidence lines (indented by the coach, each naming its turns) are set apart from
+// the prose — they are the part a trainee is meant to be able to point at.
+const KIND_TITLE = {
+  discriminating: "Misread",
+  coverage: "Never asked",
+  confirming: "Read correctly",
+};
+
+function showCoach(readings) {
+  const order = { discriminating: 0, coverage: 1, confirming: 2 };
+  const cards = [...readings]
+    .sort((a, b) => order[a.kind] - order[b.kind])
+    .map((reading) => {
+      const card = document.createElement("section");
+      card.className = `coach-card ${reading.kind}`;
+
+      const head = document.createElement("h3");
+      head.innerHTML = `<span class="tag"></span><span class="dom"></span>`;
+      head.querySelector(".tag").textContent = KIND_TITLE[reading.kind] ?? reading.kind;
+      head.querySelector(".dom").textContent = reading.domain;
+      card.append(head);
+
+      for (const line of reading.lines) {
+        const p = document.createElement("p");
+        p.className = line.startsWith("  ") ? "coach-evidence" : "coach-line";
+        p.textContent = line.trim();
+        card.append(p);
+      }
+      return card;
+    });
+
+  $("coach").replaceChildren(...cards);
+  $("coach").classList.toggle("hidden", cards.length === 0);
+}
+
+// ---------------------------------------------------------------- history
+
+// Committed interviews only — an abandoned draw is not an interview. Ordered
+// newest first, and deliberately without a total: the CDR protocol certifies
+// raters, this trains them.
+async function loadHistory() {
+  if (!assessing) return;
+  const rows = await fetch("/api/assessments")
+    .then((r) => r.json())
+    .catch(() => []);
+
+  $("history").classList.toggle("hidden", rows.length === 0);
+  if (!rows.length) return;
+
+  const cells = rows.map((row) => {
+    const tr = document.createElement("tr");
+    tr.className = row.hit ? "hit" : "miss";
+    const when = new Date(row.at).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const r = row.ratings ?? {};
+    for (const text of [
+      when,
+      row.actual.label,
+      fmtCDR(r.global),
+      fmtCDR(r.memory),
+      fmtCDR(r.orientation),
+      fmtCDR(r.judgment),
+      fmtCDR(r.language),
+    ]) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      tr.append(td);
+    }
+    const verdict = document.createElement("td");
+    verdict.className = "verdict-cell";
+    verdict.textContent = row.hit ? "match" : "miss";
+    tr.append(verdict);
+    return tr;
+  });
+  $("history-rows").replaceChildren(...cells);
+}
+
+// ---------------------------------------------------------------- review mode
+
+// The finished interview, re-read with the answer key visible. The traces come
+// from the session log rather than the page's own transcript: a blind session's
+// exchanges never carried one, and this is the record that always did.
+$("review").addEventListener("click", async () => {
+  const res = await fetch(`/api/session/${sessionId}/review`);
+  if (!res.ok) return;
+  const data = await res.json();
+
+  $("review-actual").textContent = data.actual.label;
+  const pane = $("review-turns");
+  pane.replaceChildren();
+  for (const turn of data.turns) {
+    bubble("user", turn.user, "", pane);
+    attachWhy(bubble("persona", turn.persona, "", pane), turn.trace, []);
+  }
+
+  reveal.classList.add("hidden");
+  $("review-view").classList.remove("hidden");
+  $("review-view").scrollTop = 0;
+});
+
+$("review-back").addEventListener("click", () => {
+  $("review-view").classList.add("hidden");
+  reveal.classList.remove("hidden");
+});
 
 // The profile names are healthy, cdr05, cdr1, cdr2, cdr3; the rating is a number.
 function labelMatches(name, rating) {
@@ -468,7 +565,12 @@ const home = () => {
   sessionId = null;
   persona = null;
   chat.classList.add("hidden");
+  reveal.classList.add("hidden");
+  $("review-view").classList.add("hidden");
   gallery.classList.remove("hidden");
+  // The interview just finished is the newest row, so the history is refreshed on
+  // the way back rather than only at startup.
+  loadHistory();
 };
 
 $("back").addEventListener("click", async () => {
@@ -484,4 +586,4 @@ $("back").addEventListener("click", async () => {
 $("back-ended").addEventListener("click", home);
 $("reveal-back").addEventListener("click", home);
 
-loadMode().then(loadPersonas);
+loadMode().then(loadPersonas).then(loadHistory);

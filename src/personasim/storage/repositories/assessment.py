@@ -82,6 +82,21 @@ class AssessmentRepository:
         )
         return [_to_record(row) for row in self._session.execute(stmt).scalars()]
 
+    def committed(self) -> list[AssessmentRecord]:
+        """Every *committed* interview, newest first, across all personas.
+
+        Committed only, and that is the whole filter: opening the gallery draws a
+        severity, so an interview someone opened and walked away from leaves a row
+        with no rating and no turns. Listing those would pad a training history
+        with interviews that never happened.
+        """
+        stmt = (
+            select(AssessmentRow)
+            .where(AssessmentRow.committed_at.is_not(None))
+            .order_by(AssessmentRow.drawn_at.desc())
+        )
+        return [_to_record(row) for row in self._session.execute(stmt).scalars()]
+
 
 def _to_record(row: AssessmentRow) -> AssessmentRecord:
     return AssessmentRecord(

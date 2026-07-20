@@ -490,7 +490,7 @@ Three theses, each inherited from an earlier phase's discipline:
   community affairs, home and hobbies, and personal care are named as unobservable
   in conversation, not padded — they are off the worksheet for the same reason.
 
-### Sprint 3A — the evidence ledger 🔶 (current — built, drive clean, owner sign-off pending)
+### Sprint 3A — the evidence ledger ✅ (declared complete by the owner)
 
 `persona assess <persona> [--session] [--list] [--profile]`: a deterministic
 per-domain report over one logged session — recall fates split remote vs recent,
@@ -522,7 +522,7 @@ four overruns, word-finding); CDR 3 differs exactly where the profiles differ
 the higher thresholds printed). Every failure in each transcript is accounted for
 with its mechanism and its turn.
 
-### Sprint 3B — the blind loop 🔶 (built, driven clean, owner sign-off pending)
+### Sprint 3B — the blind loop ✅ (declared complete by the owner)
 
 The per-session hidden draw (uniform over all five profiles, weights held as data;
 genuinely random on purpose — the hash-not-roll invariant protects `impairment/`'s
@@ -604,7 +604,7 @@ No profile YAML changed, no schema changed, and no new symptom was added — the
 behaviour was already correct and already specified. Only its explanation was
 missing.
 
-### Sprint 3C — the coach ⬜
+### Sprint 3C — the coach 🔶 (in progress)
 
 Three kinds of feedback, all by rule: **discriminating evidence** where rated ≠
 actual (the turns whose recorded behaviour separates the two stages, phrased from
@@ -614,6 +614,94 @@ evidence** when right. Plus review mode (the trace panel unlocked over the finis
 transcript) and the plain history (date, actual, rated, hit or miss — a mirror, not
 a mark). The phase's success criterion: a trainee who rates wrongly can point,
 after the reveal, to the turns they misread or the probes they never asked.
+
+Built: `assessment/coach.py` (a pure reader, like the ledger — no LLM, no storage),
+`GET /api/session/{id}/review`, `GET /api/assessments`, and the three UI pieces —
+coach cards above the now-collapsed raw ledger, review mode reusing the Stage 9
+why-panel wholesale, and the history table on the gallery. `make check` green at
+614.
+
+Three things worth keeping straight, because each was a decision and not a detail:
+
+- **Coverage is never reported as a misreading.** A domain with evidence
+  discriminates by what it showed; one *probed and clean* discriminates the other
+  way (being asked the day and answering it rules a stage out); one never probed
+  discriminates nothing, however confident the rating. Collapsing the last two
+  would tell a trainee they read something correctly when they never looked, and a
+  test pins the distinction.
+- **The gap is counted in rungs, not CDR points.** 0.5→1 and 2→3 are both one step.
+  "One rung too high" is the reading being trained; "0.5 too high" would invite
+  arithmetic on a scale that has none.
+- **Language says when the interview could not have shown it.** The actual stage is
+  the drawn profile and never inferred from the transcript — so a domain can be
+  "wrong" while the transcript supported the answer given. Word-finding is a *rate*,
+  and one groping pause in six turns reads as 17%, which belongs to no stage. The
+  coach states the observed cadence beside both intended rates and names the
+  sampling problem rather than calling a defensible reading a miss.
+
+**The anchors moved out of source into `assessment/anchors.yaml`.** The coach quotes
+the same clinical text the worksheet shows, and two copies of a stage description
+drift; worse, putting it in Python broke
+`test_no_impairment_concepts_in_the_healthy_core` — "dementia" in the healthy core.
+Holding it as data keeps that ban whole instead of carving an exception into it, and
+matches severity being data. The page fetches `/api/anchors`, and a test asserts it
+keeps no anchor text of its own.
+
+**Review is locked server-side until commit**, by the `committed_at` column and not
+by the browser being polite: the trace names every withheld memory and its reason,
+so before the rating is in it *is* the answer key, and the browser is exactly what a
+curious trainee opens the devtools on. History lists **committed interviews only** —
+opening the gallery draws a severity, so an abandoned interview leaves a row with no
+rating and no turns, and listing those would pad a training record with interviews
+that never happened.
+
+Driven against qwen3:14b in the browser. Four defects the tests missed and the drive
+caught: orientation printed its standing condition once per turn (now collapsed as
+the report does), an empty turn list rendered as "turns ", the rung distance said
+"one reading too low" for a two-rung gap, and remote-memory-intact was missing from
+the evidence — which is half the diagnosis, since remote holding while recent fails
+*is* the dissociation.
+
+**Driven at every stage.** Eight blind interviews against qwen3:14b through the real
+HTTP API, each with the same seven-probe battery (orientation to time and place,
+three-word registration, remote biography, recent episodic, a multi-part planning
+question, delayed recall across a four-turn gap), rated from the transcript *before*
+committing: healthy ×1, CDR 0.5 ×2, CDR 1 ×2, CDR 2 ×1, CDR 3 ×2. Five global
+ratings right, three wrong — and the three wrong ones are the evidence that matters:
+
+- **CDR 0.5 read as healthy.** Breakfast came back with its content, delayed recall
+  was 3/3, and not one word-finding pause fired in seven turns. The coach named all
+  three domains, and on language said plainly that 0 of 7 turns showed anything
+  against 12% intended — *"a short interview samples a rate poorly; this one may not
+  have been readable"*. That is the honest answer, and the reason the cadence note
+  exists.
+- **The registration probe was misread as memory.** "Table. Penny." with *apple*
+  missing looked like impaired registration; the coach showed it was the **turn-3
+  overrun** — the four-part question dropped the word before she ever heard it. A
+  misattribution between two domains, caught by a mechanism naming its own turn.
+  This is the clearest demonstration in the phase that the ledger is worth having.
+- **Judgment under-rated twice**, at CDR 0.5 and CDR 3, both times because the
+  overrun evidence was in the transcript and not read.
+
+Healthy behaves as it must: no orientation note at all (*"intended: time confident"*
+beside *"no disorientation observed"* — the amendment does not leak into a profile
+that gates nothing), and the probed-and-clean path fires — *"Nothing impaired showed,
+and you did ask — turns 1, 2. A clean answer to a real probe is evidence, not an
+absence of it."* At CDR 3 all three orientation axes withhold at once (time, place
+and person), which no earlier drive had exercised.
+
+One defect the drive caught and fixed: healthy's `long_question_clauses: 0` means
+the overrun is *off*, but the difference line printed it raw — "she holds 0 part(s)
+at yours" — which reads as though healthy held nothing and were the worse stage.
+Now "never overruns", pinned by test.
+
+**One observation, recorded rather than fixed.** At CDR 3 the ledger reports remote
+memory "came back intact" while the transcript reads *"Rain. Orchards. Henry.
+Vermont."* Both are true — retrieval succeeded, and `simplified_language` shortened
+the expression — but a trainee could reasonably read the two as contradicting each
+other. It is arguably the correct teaching (remote memory *is* relatively preserved
+at CDR 3; what fails is saying it), and it is left alone until a real trainee says
+otherwise rather than fixed on a guess.
 
 ### Not in Phase 3 — do not build these
 

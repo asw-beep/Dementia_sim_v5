@@ -9,14 +9,22 @@ from a transcript (the actual stage is the loaded profile, known by construction
 and never reaches into the simulator to change anything.
 """
 
+from personasim.assessment.anchors import CDR_RUNGS, anchor, rung_of
+from personasim.assessment.coach import Feedback, FeedbackKind, coach
 from personasim.assessment.ledger import Ledger, build_ledger
 from personasim.assessment.probes import ProbeType, classify_probe
 from personasim.assessment.report import render_report
 
 __all__ = [
+    "CDR_RUNGS",
+    "Feedback",
+    "FeedbackKind",
     "Ledger",
     "ProbeType",
+    "anchor",
     "build_ledger",
     "classify_probe",
+    "coach",
     "render_report",
+    "rung_of",
 ]

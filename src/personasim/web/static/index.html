@@ -24,6 +24,31 @@
         </p>
       </header>
       <div id="cards" class="cards"></div>
+
+      <!-- The history: a mirror, not a mark. Date, actual, rated, hit or miss —
+           no score, no streak, no pass mark. A trainee who keeps over-calling
+           healthy patients sees the column and draws their own conclusion. -->
+      <section id="history" class="history hidden">
+        <h2>Your past interviews</h2>
+        <p class="muted small">
+          What she was, what you said. No score is kept — the pattern is the point.
+        </p>
+        <table id="history-table" class="history-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>She was</th>
+              <th>You said</th>
+              <th>Memory</th>
+              <th>Orient.</th>
+              <th>Judg.</th>
+              <th>Lang.</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-rows"></tbody>
+        </table>
+      </section>
       <p id="gallery-empty" class="empty hidden">
         No personas yet. Seed one: <code>persona seed data/personas/elena.yaml</code>
       </p>
@@ -106,10 +131,39 @@
           <span id="reveal-verdict" class="verdict"></span>
         </div>
         <div id="reveal-domains" class="reveal-domains"></div>
-        <pre id="reveal-report" class="report"></pre>
+
+        <!-- The coach: what was misread, what was never asked, what was read
+             right. Above the raw ledger, because it is the reading of it. -->
+        <div id="coach" class="coach hidden"></div>
+
+        <details class="ledger-details">
+          <summary>The raw evidence ledger</summary>
+          <pre id="reveal-report" class="report"></pre>
+        </details>
         <div class="reveal-actions">
+          <button id="review">Review the interview</button>
           <button id="download-reveal" class="ghost">Download transcript</button>
-          <button id="reveal-back">Back to personas</button>
+          <button id="reveal-back" class="ghost">Back to personas</button>
+        </div>
+      </section>
+
+      <!-- Review mode: the finished interview, with the why-panel unlocked. Only
+           reachable after the rating is committed — before that the trace is the
+           answer key, and the server refuses it. -->
+      <section id="review-view" class="reveal hidden">
+        <div class="reveal-head">
+          <div class="reveal-col">
+            <span class="muted small">Reviewing — she was</span>
+            <h2 id="review-actual"></h2>
+          </div>
+        </div>
+        <p class="muted small review-note">
+          Every turn now carries its “why?”: what was found, what was withheld, and
+          the reason. This is the record the report was read from.
+        </p>
+        <div id="review-turns" class="messages review-turns"></div>
+        <div class="reveal-actions">
+          <button id="review-back" class="ghost">Back to the reveal</button>
         </div>
       </section>
     </main>

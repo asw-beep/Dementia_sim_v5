@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from personasim.assessment.ledger import build_ledger
+from personasim.assessment.anchors import anchor
+from personasim.assessment.coach import FeedbackKind, coach
+from personasim.assessment.ledger import Ledger, build_ledger
 from personasim.assessment.probes import CORE_PROBES, ProbeType, classify_probe
 from personasim.assessment.report import render_report
 from personasim.assessment.vocabulary import (
@@ -471,3 +473,141 @@ def _withheld(memory: Memory, reason: str) -> object:
         age_days=0,
         reason=reason,
     )
+
+
+def _profiles_by_rung() -> dict[float, CognitiveProfile]:
+    names = {0.0: "healthy", 0.5: "cdr05", 1.0: "cdr1", 2.0: "cdr2", 3.0: "cdr3"}
+    return {rung: load_profile(PROFILES / f"{name}.yaml") for rung, name in names.items()}
+
+
+class TestCoach:
+    """Sprint 3C. The coach reads a committed rating back against the ledger.
+
+    What is pinned here is the *shape* of the reading, not its wording: which kind of
+    feedback each situation earns, and that every claim it makes is anchored to a
+    turn. Prose changes; the rule that a coverage gap is never reported as a
+    misreading must not.
+    """
+
+    def _ledger_with_recent_failure(self) -> Ledger:
+        breakfast = acquired_fact("For breakfast I had porridge")
+        home = authored_fact("hometown", "I grew up in Rutland, Vermont", "hometown")
+        profile = load_profile(PROFILES / "cdr1.yaml")
+        withheld = apply_recall_gate(
+            trace_of(retrieved(breakfast, cue=0.0)),
+            profile,
+            _Source(breakfast),
+            session_id=session_encoding(breakfast.id, 0.0, 0.1),
+            now=NOW,
+        )
+        return build_ledger(
+            "s1",
+            [
+                turn_of("What did you have for breakfast?", withheld),
+                turn_of("Where did you grow up?", trace_of(retrieved(home, cue=1.0))),
+            ],
+        )
+
+    def test_a_correct_rating_is_confirmed_with_the_turns_that_carried_it(self) -> None:
+        ledger = self._ledger_with_recent_failure()
+        by_rung = _profiles_by_rung()
+
+        found = {f.domain: f for f in coach(ledger, {"memory": 1.0}, by_rung[1.0], by_rung)}
+        assert found["memory"].kind is FeedbackKind.CONFIRMING
+        assert not found["memory"].missed
+        # Confirming is not a pat on the head: it must show the evidence.
+        assert any("turn 1" in line for line in found["memory"].lines)
+
+    def test_a_wrong_rating_names_both_anchors_and_the_turns(self) -> None:
+        ledger = self._ledger_with_recent_failure()
+        by_rung = _profiles_by_rung()
+
+        found = {f.domain: f for f in coach(ledger, {"memory": 0.5}, by_rung[1.0], by_rung)}
+        memory = found["memory"]
+        assert memory.kind is FeedbackKind.DISCRIMINATING
+        assert memory.missed
+        text = " ".join(memory.lines)
+        assert anchor("memory", 0.5) in text  # what they chose
+        assert anchor("memory", 1.0) in text  # what she was
+        assert "turn 1" in text
+
+    def test_an_unprobed_domain_is_coverage_not_a_misreading(self) -> None:
+        """The distinction the whole sprint turns on.
+
+        Rating orientation without ever asking the day is not a misreading — there
+        was nothing to read. Reporting it as one would teach a trainee to distrust
+        their eye when the fault was in their interview.
+        """
+        ledger = self._ledger_with_recent_failure()  # memory probes only
+        by_rung = _profiles_by_rung()
+
+        found = {f.domain: f for f in coach(ledger, {"orientation": 2.0}, by_rung[1.0], by_rung)}
+        assert found["orientation"].kind is FeedbackKind.COVERAGE
+        assert "never asked" in " ".join(found["orientation"].lines)
+
+    def test_over_diagnosing_a_healthy_draw_is_caught(self) -> None:
+        """The trap the blind draw exists to set: healthy is on the scale, and
+        calling her 0.5 must be corrected as firmly as missing a real deficit."""
+        by_rung = _profiles_by_rung()
+        clean = build_ledger("s2", [turn_of("What day is it?", trace_of())])
+
+        found = {f.domain: f for f in coach(clean, {"global": 0.5}, by_rung[0.0], by_rung)}
+        assert found["global"].missed
+        assert found["global"].actual == 0.0
+
+    def test_the_gap_is_counted_in_rungs_not_cdr_points(self) -> None:
+        """0.5→1 and 2→3 are both one step; the scale is not linear."""
+        ledger = self._ledger_with_recent_failure()
+        by_rung = _profiles_by_rung()
+
+        one_rung = coach(ledger, {"memory": 0.5}, by_rung[1.0], by_rung)[0]
+        three_rungs = coach(ledger, {"memory": 3.0}, by_rung[0.5], by_rung)[0]
+        assert "one rung too low" in one_rung.lines[0]
+        assert "3 rungs too high" in three_rungs.lines[0]
+
+    def test_an_unrated_domain_is_never_scored_as_wrong(self) -> None:
+        ledger = self._ledger_with_recent_failure()
+        by_rung = _profiles_by_rung()
+
+        for feedback in coach(ledger, {"memory": None}, by_rung[1.0], by_rung):
+            assert not feedback.missed
+
+    def test_every_claim_carries_a_turn_or_says_it_has_none(self) -> None:
+        """The phase's success criterion, mechanically: a trainee must be able to
+        point at what they misread. A line asserting behaviour with no turn behind
+        it is exactly the unfalsifiable feedback this package exists to avoid."""
+        ledger = self._ledger_with_recent_failure()
+        by_rung = _profiles_by_rung()
+        ratings = {"memory": 0.5, "orientation": 2.0, "judgment": 1.0, "language": 0.5}
+
+        for feedback in coach(ledger, ratings, by_rung[1.0], by_rung):
+            evidence = [line for line in feedback.lines if line.startswith("  ")]
+            assert all("turn" in line for line in evidence), feedback
+
+    def test_the_coach_survives_a_profile_that_is_not_on_the_scale(self) -> None:
+        """A hand-made profile has no rung, and the coach must decline rather than
+        invent one — there is no CDR for "whatever this YAML says"."""
+        odd = CognitiveProfile(name="bespoke", label="Not on the scale")
+        assert coach(self._ledger_with_recent_failure(), {"memory": 1.0}, odd) == []
+
+    def test_healthy_is_described_as_never_overrunning_not_as_holding_nothing(self) -> None:
+        """`long_question_clauses: 0` disables the overrun; it is not a capacity of
+        zero. Printed raw it read "she holds 0 part(s) at yours" of a healthy
+        rating — saying healthy was the worse stage. Found by driving CDR 0.5."""
+        overrunning = CognitiveProfile(
+            name="overrun",
+            speech=Speech(long_question_clauses=1, long_question_probability=1.0),
+        )
+        message = "You slept well, you ate at noon, and what is your dog called?"
+        _, note = retain_question(message, overrunning, session_id="s", turn=1)
+        ledger = build_ledger(
+            "s",
+            [turn_of(message, trace_of(reason=f"factual_recall: 1 memories matched; {note}"))],
+        )
+        by_rung = _profiles_by_rung()
+
+        found = {f.domain: f for f in coach(ledger, {"judgment": 0.0}, by_rung[0.5], by_rung)}
+        assert found["judgment"].kind is FeedbackKind.DISCRIMINATING
+        text = " ".join(found["judgment"].lines)
+        assert "never overruns" in text
+        assert "holds 0 part(s)" not in text

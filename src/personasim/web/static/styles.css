@@ -532,6 +532,142 @@ button.danger:hover:not(:disabled) {
 .reveal-domain .val {
   font-size: 16px;
 }
+.reveal-domain.missed .val {
+  color: var(--danger);
+}
+.reveal-domain .was {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The coach. One card per domain, and the kind is carried by a coloured edge
+   rather than by shouting: a miss should be legible, not punitive. */
+.coach {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.coach-card {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 16px 18px;
+}
+.coach-card.discriminating {
+  border-left-color: var(--danger);
+}
+.coach-card.coverage {
+  border-left-color: var(--accent);
+}
+.coach-card.confirming {
+  border-left-color: var(--user);
+}
+.coach-card h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.coach-card .tag {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.coach-card .dom {
+  text-transform: capitalize;
+}
+.coach-line {
+  margin: 0 0 7px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+/* Evidence is set in mono and indented: it is quoted from the ledger, and a
+   trainee must be able to tell what the system observed from what it concluded. */
+.coach-evidence {
+  margin: 0 0 5px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* Review mode reuses the chat bubbles and the why-panel wholesale; it only needs
+   a pane that scrolls on its own. */
+.review-note {
+  margin: 0 0 16px;
+}
+.review-turns {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--panel);
+  max-height: none;
+}
+
+/* The history. Deliberately a plain table: a mirror, not a scoreboard. The miss
+   column is coloured but nothing is totalled, ranked or congratulated. */
+.history {
+  margin-top: 40px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+.history h2 {
+  margin: 0 0 4px;
+  font-size: 19px;
+}
+.history > p {
+  margin: 0 0 16px;
+}
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.history-table th {
+  text-align: left;
+  padding: 8px 12px 8px 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--line);
+}
+.history-table td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.history-table .verdict-cell {
+  text-align: right;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-right: 0;
+}
+.history-table tr.hit .verdict-cell {
+  color: var(--user);
+}
+.history-table tr.miss .verdict-cell {
+  color: var(--danger);
+}
+
+.ledger-details {
+  margin-bottom: 20px;
+}
+.ledger-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.ledger-details summary:hover {
+  color: var(--accent);
+}
 
 pre.report {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

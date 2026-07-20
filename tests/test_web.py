@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -481,29 +480,140 @@ class TestAssessmentMode:
 class TestWorksheetAnchors:
     """The worksheet's vocabulary, pinned from both sides.
 
-    The domain names are written twice — once as `Worksheet` fields on the server,
-    once as `DOMAINS` in `app.js` — and the reveal keys its per-domain rows by them.
-    Drift would not raise anything; it would silently render a blank row against a
-    rating the server did record. So the two lists are compared here, and the
-    anchor text (condensed from `docs/disease_profiles/CDR*.md`, which is what makes
-    a rating a reading of the scale rather than a guess) must cover every domain at
-    every point on it.
+    The domain names are written on the server (`Worksheet`'s fields) and keyed by
+    the reveal's per-domain rows; the anchor text is clinical description the coach
+    quotes back. Both were briefly duplicated in `app.js`, which is how a page and a
+    server end up disagreeing about what CDR 2 looks like — the page now fetches
+    them from `/api/anchors`, and what is pinned here is that the served set is
+    complete and matches the rating the server will accept.
     """
 
     APP_JS = (WEB / "static" / "app.js").read_text()
 
-    def _js_domains(self) -> list[str]:
-        block = self.APP_JS.split("const DOMAINS = [", 1)[1].split("];", 1)[0]
-        return re.findall(r'\["(\w+)"', block)
+    def test_the_served_domains_are_the_servers_domains(self, client: TestClient) -> None:
+        served = [entry["key"] for entry in client.get("/api/anchors").json()["domains"]]
+        assert served == list(Worksheet(**{"global": 1.0}).as_ratings())
 
-    def test_the_ui_domains_are_the_servers_domains(self) -> None:
-        assert self._js_domains() == list(Worksheet(**{"global": 1.0}).as_record())
-
-    def test_every_domain_is_anchored_at_every_point_on_the_scale(self) -> None:
-        block = self.APP_JS.split("const ANCHORS = {", 1)[1].split("\n};", 1)[0]
-        anchored = {
-            domain: set(re.findall(r"^\s+([\d.]+):", body, re.MULTILINE))
-            for domain, body in re.findall(r"(\w+): \{\n(.*?)\n  \},", block, re.DOTALL)
+    def test_every_domain_is_anchored_at_every_point_on_the_scale(self, client: TestClient) -> None:
+        payload = client.get("/api/anchors").json()
+        scale = {"0.0", "0.5", "1.0", "2.0", "3.0"}
+        assert payload["rungs"] == [0.0, 0.5, 1.0, 2.0, 3.0]
+        assert {domain: set(rungs) for domain, rungs in payload["anchors"].items()} == {
+            entry["key"]: scale for entry in payload["domains"]
         }
-        scale = {"0", "0.5", "1", "2", "3"}
-        assert anchored == {domain: scale for domain in self._js_domains()}
+
+    def test_the_page_keeps_no_anchor_text_of_its_own(self) -> None:
+        """The duplication that made this class necessary must not come back.
+
+        A hardcoded anchor in the page would not fail anything — it would simply
+        disagree with the coach, quietly, in the one place a trainee is trying to
+        learn the difference between two stages.
+        """
+        assert "const ANCHORS" not in self.APP_JS
+        assert "/api/anchors" in self.APP_JS
+        # A stage description in the page is the smell, whoever wrote it.
+        assert "forgetfulness" not in self.APP_JS
+
+    def test_anchors_are_served_outside_assessment_mode_too(self, client: TestClient) -> None:
+        """They describe the scale, not the draw. Serving them tells no one which
+        severity was picked, and the plain app is where a reader may want them."""
+        assert client.get("/api/anchors").status_code == 200
+
+    def test_the_reveal_carries_the_coach(self, assessment: tuple[TestClient, Database]) -> None:
+        """Sprint 3C at the seam: the reveal is no longer a raw ledger dump.
+
+        What is asserted is the contract the page renders from — a reading per
+        domain, each naming whether it was missed — not the prose, which is the
+        coach's to change.
+        """
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it today?"})
+
+        reveal = client.post(
+            f"/api/session/{session}/commit", json={"memory": 3.0, "global": 3.0}
+        ).json()
+
+        assert reveal["coach"], "the reveal carried no reading at all"
+        assert {r["domain"] for r in reveal["coach"]} <= {
+            "memory",
+            "orientation",
+            "judgment",
+            "language",
+            "global",
+        }
+        for reading in reveal["coach"]:
+            assert reading["kind"] in {"discriminating", "coverage", "confirming"}
+            assert reading["lines"], f"{reading['domain']} was reported with nothing to say"
+
+
+class TestReviewAndHistory:
+    """Sprint 3C's two smaller pieces, and the guard that matters.
+
+    Review mode unlocks the trace over a finished interview. The trace names every
+    withheld memory and the reason, so before the rating is committed it *is* the
+    answer key — and the lock has to live on the server, because the browser is
+    what a curious trainee opens the devtools on.
+    """
+
+    def test_review_is_refused_before_the_rating_is_committed(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+
+        refused = client.get(f"/api/session/{session}/review")
+        assert refused.status_code == 409
+        assert "answer key" in refused.json()["detail"]
+
+    def test_review_unlocks_the_trace_after_commit(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+        client.post(f"/api/session/{session}/commit", json={"global": 1.0})
+
+        review = client.get(f"/api/session/{session}/review")
+        assert review.status_code == 200
+        turns = review.json()["turns"]
+        assert turns and all(turn["trace"] is not None for turn in turns)
+        # The reason is the whole point of unlocking it.
+        assert all("reason" in turn["trace"] for turn in turns)
+
+    def test_review_of_a_plain_session_is_not_offered(self, client: TestClient) -> None:
+        """Outside assessment mode there is no answer key to unlock — the trace was
+        never hidden — and no assessment record to check, so there is nothing here."""
+        session = open_session(client)
+        assert client.get(f"/api/session/{session}/review").status_code == 404
+
+    def test_history_lists_only_committed_interviews(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        """Opening the gallery draws a severity, so an abandoned interview leaves a
+        row behind. Listing those would pad a training record with interviews that
+        never happened."""
+        client, _ = assessment
+        abandoned = open_session(client)
+        finished = open_session(client)
+        client.post(f"/api/session/{finished}/message", json={"text": "Hello."})
+        client.post(f"/api/session/{finished}/commit", json={"global": 2.0})
+
+        listed = client.get("/api/assessments").json()
+        assert [row["session_id"] for row in listed] == [finished]
+        assert abandoned not in [row["session_id"] for row in listed]
+
+    def test_history_says_hit_or_miss_and_keeps_no_score(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "Hello."})
+        actual = client.post(f"/api/session/{session}/commit", json={"global": 0.0}).json()
+
+        row = client.get("/api/assessments").json()[0]
+        assert row["hit"] is (actual["actual"]["name"] == "healthy")
+        assert row["ratings"]["global"] == 0.0
+        # A mirror, not a mark: nothing that adds up.
+        assert not {"score", "total", "streak", "percent", "grade"} & set(row)
