@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from personasim.impairment import load_profile
 from personasim.llm.base import ChatMessage
 from personasim.persona import build_persona, read_seed_file
 from personasim.storage import Database, PersonaRepository
-from personasim.web.app import create_app
+from personasim.web.app import Worksheet, create_app
 
 SEED_FILE = Path(__file__).resolve().parents[1] / "data" / "personas" / "elena.yaml"
 WEB = Path(__file__).resolve().parents[1] / "src" / "personasim" / "web"
@@ -312,3 +313,197 @@ class TestTheAdapterAddsNothing:
         assert "fetch(" in script
         for invented in ("memories =", "remember(", "retrieve("):
             assert invented not in script
+
+
+# ---------------------------------------------------------------- Sprint 3B
+
+
+@pytest.fixture
+def assessment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, Database]]:
+    """The app in blind assessment mode: a hidden severity drawn per session."""
+    database = Database.from_path(tmp_path / "web.db")
+    database.create_schema()
+    with database.session() as db:
+        PersonaRepository(db).save(build_persona(read_seed_file(SEED_FILE)))
+
+    monkeypatch.setattr(
+        "personasim.web.app.build_client",
+        lambda settings: ScriptedLLM("I could not say, dear."),
+    )
+    pool = [load_profile(path) for path in sorted(PROFILES.glob("*.yaml"))]
+    with TestClient(create_app(Settings(), database, assessment_pool=pool)) as test_client:
+        yield test_client, database
+
+
+POOL_NAMES = {"healthy", "cdr05", "cdr1", "cdr2", "cdr3"}
+
+
+class TestAssessmentMode:
+    """The blind loop: draw hidden, interview blind, commit, and only then reveal.
+
+    Blindness is a set of sealed leaks, and each seal is pinned here: the profile
+    endpoint, the per-message trace (the answer key), the transcript download, and
+    the open-session response. The draw itself goes to storage, where only the
+    reveal reads it.
+    """
+
+    def test_the_profile_endpoint_hides_the_draw(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        profile = client.get("/api/profile").json()
+
+        assert profile["assessment"] is True
+        assert profile["name"] == "assessment"
+        assert profile["name"] not in POOL_NAMES  # no severity name escapes
+        assert "hidden" in profile["label"].lower()
+
+    def test_opening_a_session_returns_only_a_session_id(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        payload = client.post("/api/personas/elena-marsh/session").json()
+        assert set(payload) == {"session_id"}
+
+    def test_a_blind_reply_carries_no_trace_and_no_formed(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+
+        reply = client.post(
+            f"/api/session/{session}/message", json={"text": "I live in Portland."}
+        ).json()
+
+        assert reply["trace"] is None  # the trace is the answer key
+        assert reply["formed"] == []
+
+    def test_the_transcript_download_is_blind_too(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+
+        turns = client.get(f"/api/session/{session}/transcript").json()["turns"]
+        assert turns
+        assert all(turn["trace"] is None for turn in turns)
+
+    def test_the_draw_is_recorded_in_storage_not_in_any_response(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        session = open_session(client)
+
+        with database.session() as db:
+            record = AssessmentRepository(db).get(session)
+
+        assert record is not None
+        assert record.actual_profile in POOL_NAMES
+        assert record.committed_at is None  # drawn, not yet rated
+
+    def test_commit_reveals_actual_rating_and_the_ledger(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it today?"})
+
+        outcome = client.post(
+            f"/api/session/{session}/commit",
+            json={"global": 1.0, "memory": 0.5, "orientation": None},
+        )
+        assert outcome.status_code == 200
+        revealed = outcome.json()
+
+        assert revealed["actual"]["name"] in POOL_NAMES
+        assert revealed["ratings"]["global"] == 1.0
+        assert revealed["ratings"]["memory"] == 0.5
+        assert revealed["report"].startswith("Assessment ledger")
+        assert "PROBE COVERAGE" in revealed["report"]
+
+        with database.session() as db:
+            record = AssessmentRepository(db).get(session)
+        assert record is not None and record.committed_at is not None
+        assert record.ratings == revealed["ratings"]
+
+    def test_commit_ends_a_live_session_first(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "Hello."})
+
+        assert client.post(f"/api/session/{session}/commit", json={"global": 0}).status_code == 200
+        # The conversation closed with the commitment; there is no talking after it.
+        after = client.post(f"/api/session/{session}/message", json={"text": "One more?"})
+        assert after.status_code == 404
+
+    def test_a_second_commit_conflicts(self, assessment: tuple[TestClient, Database]) -> None:
+        client, _ = assessment
+        session = open_session(client)
+
+        assert client.post(f"/api/session/{session}/commit", json={"global": 2}).status_code == 200
+        assert client.post(f"/api/session/{session}/commit", json={"global": 3}).status_code == 409
+
+    def test_a_rating_off_the_cdr_scale_is_rejected(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        assert (
+            client.post(f"/api/session/{session}/commit", json={"global": 1.5}).status_code == 422
+        )
+
+    def test_a_plain_session_cannot_commit(self, client: TestClient) -> None:
+        session = open_session(client)
+        response = client.post(f"/api/session/{session}/commit", json={"global": 1.0})
+        assert response.status_code == 404
+
+    def test_a_plain_profiled_session_still_shows_its_trace(
+        self, impaired_client: TestClient
+    ) -> None:
+        """Blindness belongs to assessment mode alone: the ordinary profiled app
+        keeps the why-panel, exactly as Stage 9 built it."""
+        session = open_session(impaired_client)
+        reply = impaired_client.post(
+            f"/api/session/{session}/message", json={"text": "Hello there."}
+        ).json()
+        assert reply["trace"] is not None
+
+
+class TestWorksheetAnchors:
+    """The worksheet's vocabulary, pinned from both sides.
+
+    The domain names are written twice — once as `Worksheet` fields on the server,
+    once as `DOMAINS` in `app.js` — and the reveal keys its per-domain rows by them.
+    Drift would not raise anything; it would silently render a blank row against a
+    rating the server did record. So the two lists are compared here, and the
+    anchor text (condensed from `docs/disease_profiles/CDR*.md`, which is what makes
+    a rating a reading of the scale rather than a guess) must cover every domain at
+    every point on it.
+    """
+
+    APP_JS = (WEB / "static" / "app.js").read_text()
+
+    def _js_domains(self) -> list[str]:
+        block = self.APP_JS.split("const DOMAINS = [", 1)[1].split("];", 1)[0]
+        return re.findall(r'\["(\w+)"', block)
+
+    def test_the_ui_domains_are_the_servers_domains(self) -> None:
+        assert self._js_domains() == list(Worksheet(**{"global": 1.0}).as_record())
+
+    def test_every_domain_is_anchored_at_every_point_on_the_scale(self) -> None:
+        block = self.APP_JS.split("const ANCHORS = {", 1)[1].split("\n};", 1)[0]
+        anchored = {
+            domain: set(re.findall(r"^\s+([\d.]+):", body, re.MULTILINE))
+            for domain, body in re.findall(r"(\w+): \{\n(.*?)\n  \},", block, re.DOTALL)
+        }
+        scale = {"0", "0.5", "1", "2", "3"}
+        assert anchored == {domain: scale for domain in self._js_domains()}

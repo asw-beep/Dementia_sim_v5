@@ -76,7 +76,7 @@ def _memory(ledger: Ledger, profile: CognitiveProfile | None) -> str:
 
 def _orientation(ledger: Ledger, profile: CognitiveProfile | None) -> str:
     lines = ["ORIENTATION"]
-    lines += _lines(ledger.orientation) or ["  no disorientation observed"]
+    lines += _collapsed_lines(ledger.orientation) or ["  no disorientation observed"]
     if profile is not None:
         orient = profile.orientation
         lines.append(
@@ -137,6 +137,20 @@ def _block(title: str, lines: list[EvidenceLine]) -> list[str]:
 
 def _lines(lines: list[EvidenceLine]) -> list[str]:
     return [f"  - turn {line.turn}: {line.text}" for line in lines]
+
+
+def _collapsed_lines(lines: list[EvidenceLine]) -> list[str]:
+    """As `_lines`, but one line per distinct observation, naming all its turns.
+
+    A standing condition reports itself every turn — the orientation frame withholds
+    the weekday on turn 1 and still withholds it on turn 12 — and printing that
+    twelve times would bury the per-turn events beside it under a repeated sentence.
+    Order of first appearance is kept, so the reading order is still the interview's.
+    """
+    turns_by_text: dict[str, list[int]] = {}
+    for line in lines:
+        turns_by_text.setdefault(line.text, []).append(line.turn)
+    return [f"  - {_turn_refs(turns)}: {text}" for text, turns in turns_by_text.items()]
 
 
 def _turn_refs(turns: list[int]) -> str:

@@ -522,7 +522,7 @@ four overruns, word-finding); CDR 3 differs exactly where the profiles differ
 the higher thresholds printed). Every failure in each transcript is accounted for
 with its mechanism and its turn.
 
-### Sprint 3B — the blind loop ⬜
+### Sprint 3B — the blind loop 🔶 (built, driven clean, owner sign-off pending)
 
 The per-session hidden draw (uniform over all five profiles, weights held as data;
 genuinely random on purpose — the hash-not-roll invariant protects `impairment/`'s
@@ -534,6 +534,75 @@ anchor text beside it, optional probe guide), the commitment (end locks the
 transcript, submit locks the rating), the reveal (actual + rating + raw ledger), and
 an additive `assessments` table. Blindness is a UI contract, not a security
 boundary, and says so.
+
+Built: `SessionStore` takes a profile *pool* and draws with `secrets.choice` (not a
+hash — unpredictability is this one's job); `AssessmentRow`/`AssessmentRepository`
+hold the answer key and the committed worksheet; `POST /api/session/{id}/commit`
+ends the session, locks the rating, and returns actual + rating + ledger;
+`./run start assess` and `persona serve --assessment`. The worksheet carries a
+one-line anchor per domain per rating, condensed from `docs/disease_profiles/`, shown
+on hover as well as on selection so two adjacent stages can be compared before
+choosing. `make check` green at 598.
+
+**Driven** against a local model, three blind sessions, over the real HTTP API and
+the served UI: the draw stayed hidden (`/api/profile`, every message, the transcript
+download, the server log), commit revealed correctly, a second commit 409'd, and a
+plain profiled session kept its trace panel. The loop does what it is for — the
+first drive rated CDR 2 against an actual CDR 1, and the ledger showed exactly which
+turns were over-read.
+
+Three defects the drive found, all fixed and pinned:
+
+- **The probe classifier could not see "Where are we right now?"** — it knew "where
+  *you* are" but not the first-person plural the question is actually asked in, and
+  the same for "What did we talk about earlier?" (it held only the past-tense "we
+  talked about"). Both are phrasings the new interview guide *recommends*, so the app
+  told the trainee to ask something and then reported they never asked it. A coverage
+  line that says "never probed" when it was probed is worse than no line. Fixed in
+  `assessment/probes.py`, and the guide is now pinned against the classifier: every
+  quoted question in the served page must classify.
+- **The worksheet's domain names were written twice** — `Worksheet` on the server,
+  `DOMAINS` in `app.js` — with the reveal keyed by them. Drift would have rendered a
+  blank row against a rating that was recorded. Pinned from both sides.
+- **The orientation frame explained nothing to the trace** — see the amendment below.
+
+#### Phase 2 amendment — the orientation frame now says what it withheld
+
+Argued with a transcript, as the rule requires. At CDR 1 (`day_and_date: mistaken`)
+she was asked the day and answered *"I don't have a clear sense of the day. It's been
+some time since I kept track."* — the mechanism working exactly as specified. The
+ledger printed **"no disorientation observed"** directly above **"intended: time
+mistaken"**, contradicting itself on the page.
+
+The cause was structural, not a wrong rule: `render_now_impaired` degraded the prompt
+frame and returned only a string, so orientation left no note in `trace.reason`. Every
+other mechanism explains itself there — `retain_question` returns its overrun note
+and the loop appends it — but this one did not, so the ledger's only orientation
+evidence was `apply_place_gate` firing on an authored residence memory. **Lost
+weekdays were invisible to the reader by construction**, which is precisely the
+"unexplained failure indistinguishable from a bug" the trace exists to prevent, in
+the second most diagnostic domain there is.
+
+Fixed the way the pattern already went: `render_now_impaired` now returns
+`(frame, note)`, the loop appends the note, and the reader needed no change — the
+`orientation: ` prefix was already routed. **One note per degraded axis**, joined by
+the note separator, so CDR 2 (time and place, person holding) is distinguishable from
+CDR 3 (all three); a single blended sentence would have hidden exactly the difference
+3C's discriminating evidence is made of. The note states a *standing condition* and
+so recurs every turn, like the fade's, and the report collapses identical lines into
+one naming its turns. Healthy still emits nothing, or the reader would report a
+deficit the profile does not have. Pinned from both sides for all four profiles, and
+re-driven: the same CDR 1 probe now reads
+
+```
+ORIENTATION
+  - turns 1, 2, 3: the weekday and the date are withheld — she cannot recite what she was not given
+  intended: time mistaken; place confident; person confident
+```
+
+No profile YAML changed, no schema changed, and no new symptom was added — the
+behaviour was already correct and already specified. Only its explanation was
+missing.
 
 ### Sprint 3C — the coach ⬜
 
@@ -1265,20 +1334,23 @@ found weeks later by talking to a persona and watching her deny her own dog.
 
 ## Where to pick up
 
-**Sprint 2A — CDR 0.5.** Phase 1 is done and tagged `phase-1-complete`; work happens
-on the `phase-2` branch, and that tag is the way back if this goes wrong.
+**Sprint 3C — the coach.** Phase 2 is signed off; 3A and 3B are built and driven
+clean, with sign-off pending on both. Phase 1 remains tagged `phase-1-complete` and
+that tag is still the way back.
 
-The first move is not code. It is `data/profiles/healthy.yaml` and a profile loader
-that changes nothing — because a `healthy.yaml` of all `1.0` that leaves the Phase 1
-suite green is the proof that the wrapper is a wrapper. Only once impairment can be
-*switched off to nothing* is it safe to switch it on.
+Everything 3C needs now exists and is honest. The ledger reads every mechanism
+including orientation (the 3B amendment above), coverage knows what was never
+elicited, and `assessments` holds actual and rated per session, with
+`AssessmentRepository.history()` already written for the history view. So 3C is
+mostly a *renderer* over evidence that is already there — which is the point, and
+the reason to resist the temptation to add a mechanism to explain a gap. A gap the
+coach cannot explain is a Phase 2 amendment argued with a transcript, exactly as the
+orientation one was.
 
-Then the seam: `retrieval/engine.py` is where a memory is found, scored and either
-returned or not. That is where a profile suppresses recall, and where the trace must
-say *"found, suppressed by profile, recency 0.9"* rather than quietly returning less.
-Orientation degrades at `render_now()` — the clock is injected, not stored, exactly
-so that losing the day costs no memory change. Word-finding and repetition are prompt
-seams, not memory ones.
+The one thing to get right: **discriminating evidence is the turns where the two
+stages genuinely differ**, phrased from profile numbers and spec anchors — not a
+restatement of everything observed. A trainee who rated 2 against an actual 1 needs
+the lines that separate 1 from 2, not the whole ledger again.
 
 Before starting, read `CLAUDE.md` — the stage gate, *Who is in the room*, and the
 closed cast are not optional, and neither is this:
@@ -1293,3 +1365,10 @@ keyworded `grew` that "where did you **grow** up?" could never reach.
 Tests encode the failures you already imagined. She fails in ways you did not. So:
 build the instrument, go looking for trouble, and write the tests *after*, against
 what actually broke.
+
+It kept being true through Phase 3, where the thing being driven is no longer only
+her. 598 tests were green while the reveal said "no disorientation observed" about a
+woman who had just lost the weekday, and while the app recommended a question its own
+classifier could not see. Both took three turns of a real interview to find. **Drive
+the loop, not just the persona** — read the report it produces and check it against
+the transcript beside it, line by line.

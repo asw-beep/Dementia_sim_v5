@@ -138,9 +138,25 @@ def voice_notes(
     return "\n\n".join(part for part in parts if part)
 
 
-def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None) -> str | None:
+def render_now_impaired(
+    profile: CognitiveProfile, when: datetime | None = None
+) -> tuple[str | None, str | None]:
     """The clock and the setting, as she experiences them — or None to leave
-    `render_now` alone.
+    `render_now` alone — and the note that says what the frame withheld.
+
+    The note is the second half of this function's job, and it was missing until a
+    Sprint 3B drive caught the consequence: she lost the weekday exactly as CDR 1
+    intends, and the assessment ledger reported "no disorientation observed" beside
+    "intended: time mistaken". Every other mechanism explains itself into
+    `trace.reason` (`retain_question` returns its overrun note the same way); this
+    one degraded the prompt and told the trace nothing, so the one domain after
+    memory that a caregiver actually probes was invisible to the reader by
+    construction. An unexplained failure is indistinguishable from a bug —
+    `CLAUDE.md`, and the whole footing of Phase 3's reveal.
+
+    The note describes the *standing condition* — what this profile withholds from
+    her frame — so it recurs every turn, as the fade's does. Whether anyone asked
+    is a separate question, and the ledger's coverage half answers it.
 
     Three axes, degraded a sprint apart, composed here into one frame:
 
@@ -182,7 +198,7 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
     place_sense = profile.orientation.place
     person_known = profile.orientation.person == "confident"
     if time_sense == "confident" and place_sense == "confident" and person_known:
-        return None
+        return None, None
 
     now = when or datetime.now()
 
@@ -313,7 +329,46 @@ def render_now_impaired(profile: CognitiveProfile, when: datetime | None = None)
         )
 
     parts.append(coda)
-    return "".join(parts)
+    return "".join(parts), _frame_note(time_sense, place_sense, person_known)
+
+
+#: What each degraded axis takes out of the frame, in the reader's words. The
+#: "orientation: " prefix is `assessment.vocabulary.ORIENTATION_PREFIX`, written
+#: here as a literal for the same reason the place gate writes its own reason
+#: literally: `impairment/` may not import the reader. The pinning test invokes
+#: this function for real and parses what it returns, so the two cannot drift.
+_FRAME_WITHHOLDINGS = {
+    "time_uncertain": (
+        "the weekday is in her frame but held loosely — she can waver and still land on it"
+    ),
+    "time_mistaken": (
+        "the weekday and the date are withheld — she cannot recite what she was not given"
+    ),
+    "place_hazy": "where she is and the part of the day are withheld",
+    "place_lost": "where she is, the time of day, the month and the year are withheld",
+    "person_unfamiliar": "who is speaking is withheld — recognition does not reliably come",
+}
+
+
+def _frame_note(time_sense: str, place_sense: str, person_known: bool) -> str | None:
+    """One note *per degraded axis*, joined the way the reader splits them.
+
+    Each axis carries the prefix and they are joined with "; " — the note
+    separator — so a three-axis CDR 3 arrives as three notes rather than one long
+    sentence, and time, place and person can be told apart. That matters
+    downstream: at CDR 2 place goes while person holds, and a reader that could not
+    separate them could not show why.
+    """
+    withheld = [
+        _FRAME_WITHHOLDINGS[key]
+        for key in (
+            f"time_{time_sense}" if time_sense != "confident" else "",
+            f"place_{place_sense}" if place_sense != "confident" else "",
+            "" if person_known else "person_unfamiliar",
+        )
+        if key in _FRAME_WITHHOLDINGS
+    ]
+    return "; ".join(f"orientation: {axis}" for axis in withheld) if withheld else None
 
 
 def _insight(profile: CognitiveProfile, trace: MemoryTrace) -> str:

@@ -651,7 +651,7 @@ class TestClinicalRates:
 class TestVoice:
     def test_healthy_says_nothing_at_all(self) -> None:
         assert voice_notes(HEALTHY, trace=trace_of()) == ""
-        assert render_now_impaired(HEALTHY) is None
+        assert render_now_impaired(HEALTHY) == (None, None)
 
     def test_word_finding_is_no_longer_a_prompt_fragment(self) -> None:
         """It moved out of the seam entirely. The model would not perform it, so the
@@ -705,7 +705,7 @@ class TestVoice:
 
     def test_the_uncertain_clock_still_tells_the_truth(self) -> None:
         profile = load_profile(PROFILES / "cdr05.yaml")
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "July 2026" in text
@@ -716,7 +716,7 @@ class TestVoice:
         # CDR 1: the exact day is *not* handed to her, so she cannot read it off — she
         # is disoriented in time, not fed a false fact. The frame she is given is real.
         profile = load_profile(PROFILES / "cdr1.yaml")
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "July 2026" in text  # the frame is still true
@@ -728,7 +728,7 @@ class TestVoice:
         # too, so she cannot recite them — she is disoriented in space and the part of
         # the day, not fed a false location. Month, year and person stay confident.
         profile = load_profile(PROFILES / "cdr2.yaml")
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "July 2026" in text  # month and year still hold
@@ -742,7 +742,7 @@ class TestVoice:
         # place but a confident clock still produces a frame (it is not None), and the
         # place haze appears without any time-degradation prose.
         profile = CognitiveProfile(name="place-only", orientation=Orientation(place="hazy"))
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "setting has begun to slip" in text
@@ -754,7 +754,7 @@ class TestVoice:
         # withheld from the frame — she is never handed them — so nothing false is put
         # in her mouth. What the frame still asserts is who she herself is.
         profile = load_profile(PROFILES / "cdr3.yaml")
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "July 2026" not in text  # month and year are gone now
@@ -770,7 +770,7 @@ class TestVoice:
         # always knows the speaker is someone else (the I/you split), and she must
         # never invent an identity for them — unfamiliarity, never misidentification.
         profile = load_profile(PROFILES / "cdr3.yaml")
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "who you are speaking with does not always come to you" in text
@@ -782,7 +782,7 @@ class TestVoice:
         # only person unfamiliar still renders a frame, with the recognition fragment
         # and none of the time/place-degradation prose.
         profile = CognitiveProfile(name="person-only", orientation=Orientation(person="unfamiliar"))
-        text = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
+        text, _ = render_now_impaired(profile, when=datetime(2026, 7, 14, 17, 5))
 
         assert text is not None
         assert "does not always come to you" in text

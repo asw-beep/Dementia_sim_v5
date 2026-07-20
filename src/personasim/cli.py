@@ -82,6 +82,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "PERSONA_PROFILE, or healthy if that is unset too."
         ),
     )
+    serve.add_argument(
+        "--assessment",
+        action="store_true",
+        help=(
+            "blind assessment mode: every session draws a hidden severity from "
+            "--profiles-dir (healthy included), the caregiver rates it, and the "
+            "reveal shows the truth with the evidence. Excludes --profile."
+        ),
+    )
+    serve.add_argument(
+        "--profiles-dir",
+        type=Path,
+        default=Path("data/profiles"),
+        help="the pool the assessment draw uses; every YAML in it is a candidate",
+    )
 
     trace = subcommands.add_parser(
         "trace",
@@ -396,6 +411,8 @@ def _serve(
     host: str,
     port: int,
     profile_path: Path | None,
+    assessment: bool,
+    profiles_dir: Path,
 ) -> int:
     """Run the web adapter.
 
@@ -406,6 +423,34 @@ def _serve(
 
     from personasim.web import create_app
 
+    database = Database.from_path(database_override or settings.database_path)
+
+    if assessment:
+        # Blind mode: the pool is every profile in the directory — healthy
+        # included, which is what keeps over-diagnosis trainable — and the drawn
+        # label is never printed. Saying which severities *could* be drawn is fine;
+        # saying which one was is the whole thing this mode exists to withhold.
+        if profile_path is not None:
+            print("error: --assessment and --profile are mutually exclusive", file=sys.stderr)
+            return 1
+        try:
+            pool = [load_profile(path) for path in sorted(profiles_dir.glob("*.yaml"))]
+        except ProfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if not pool:
+            print(f"error: no profiles in {profiles_dir}", file=sys.stderr)
+            return 1
+
+        app = create_app(settings, database, assessment_pool=pool)
+        print(f"Serving on http://{host}:{port}")
+        print(
+            f"Assessment mode: severity drawn per session and hidden "
+            f"({len(pool)} profiles in the pool)"
+        )
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+        return 0
+
     chosen = profile_path or settings.profile
     try:
         profile = load_profile(chosen) if chosen else HEALTHY
@@ -413,7 +458,6 @@ def _serve(
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    database = Database.from_path(database_override or settings.database_path)
     app = create_app(settings, database, profile=profile)
 
     print(f"Serving on http://{host}:{port}")
@@ -442,7 +486,15 @@ def main(argv: list[str] | None = None) -> int:
         return _assess(settings, args.database, args.persona, args.session, args.list, args.profile)
 
     if args.command == "serve":
-        return _serve(settings, args.database, args.host, args.port, args.profile)
+        return _serve(
+            settings,
+            args.database,
+            args.host,
+            args.port,
+            args.profile,
+            args.assessment,
+            args.profiles_dir,
+        )
 
     if args.command == "new":
         return _new(args.output)

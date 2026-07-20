@@ -58,11 +58,20 @@ _PHRASES: dict[ProbeType, tuple[str, ...]] = {
     ProbeType.ORIENTATION_PLACE: (
         "where are you",
         "where you are",
+        # The clinical first person plural — "where are *we*?" is how the probe is
+        # actually put at the bedside, and it is the phrasing the web interview
+        # guide suggests. Missing it did not merely lose a line of coverage: the
+        # report told a trainee who *had* asked that place was never probed.
+        # Found by driving the blind loop, not by the tests above.
+        "where are we",
+        "where we are",
         "what city",
         "which city",
         "what place",
         "what building",
         "where is this",
+        "what room",
+        "which room",
     ),
     ProbeType.DELAYED_RECALL: (
         "remember these",
@@ -84,6 +93,11 @@ _PHRASES: dict[ProbeType, tuple[str, ...]] = {
         "last time you",
         "earlier today",
         "we talked about",
+        # "What did we *talk* about earlier?" — the question form puts the verb in
+        # the infinitive, so the past-tense phrase above never fired on the way the
+        # question is actually asked. Same defect as "where are we", found the same
+        # way, and the guide-pinning test below is what stops a third one.
+        "we talk about",
         "did i tell you",
     ),
     ProbeType.REMOTE_BIOGRAPHY: (

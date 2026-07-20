@@ -12,6 +12,16 @@
       <header class="gallery-head">
         <h1>Personas</h1>
         <p class="muted">Choose someone to talk to.</p>
+        <p id="assess-note" class="assess-note hidden">
+          Blind assessment: her severity is drawn at random — she may be perfectly
+          healthy. Interview, rate, commit; only then is the truth shown.
+          <span class="assess-caveat">
+            The blindness is a training contract, not a security boundary — the draw
+            is in the database, and the server log knows the pool. It is withheld
+            from this page so you can be wrong honestly; going to look only cheats
+            you.
+          </span>
+        </p>
       </header>
       <div id="cards" class="cards"></div>
       <p id="gallery-empty" class="empty hidden">
@@ -27,30 +37,81 @@
           <span id="chat-name"></span>
           <span id="chat-sub" class="muted"></span>
         </div>
+        <span id="mode-badge" class="badge hidden">Blind assessment</span>
         <div class="actions">
           <button id="download" class="ghost">Download transcript</button>
           <button id="end" class="danger">End conversation</button>
         </div>
       </nav>
 
-      <div id="messages" class="messages"></div>
+      <div id="chat-body" class="chat-body">
+        <div class="chat-main">
+          <div id="messages" class="messages"></div>
 
-      <div id="ended" class="ended hidden">
-        <span>This conversation has ended.</span>
-        <button id="download-ended" class="ghost">Download transcript</button>
-        <button id="back-ended" class="ghost">Back to personas</button>
+          <div id="ended" class="ended hidden">
+            <span>This conversation has ended.</span>
+            <button id="download-ended" class="ghost">Download transcript</button>
+            <button id="back-ended" class="ghost">Back to personas</button>
+          </div>
+
+          <form id="composer" class="composer">
+            <input
+              id="input"
+              type="text"
+              autocomplete="off"
+              placeholder="Say something…"
+              maxlength="2000"
+            />
+            <button id="send" type="submit">Send</button>
+          </form>
+        </div>
+
+        <!-- The worksheet. Provisional while the interview runs; the commit is
+             the commitment — after it, and only after it, the reveal. -->
+        <aside id="worksheet" class="worksheet hidden">
+          <h2>Your rating</h2>
+          <p class="muted small">
+            Rate as you go — change your mind freely. Committing ends the
+            interview and shows the truth.
+          </p>
+          <div id="ws-rows" class="ws-rows"></div>
+          <button id="commit" disabled>Commit rating</button>
+          <p id="commit-hint" class="muted small"></p>
+
+          <details class="guide">
+            <summary>Interview guide</summary>
+            <ul>
+              <li>Orientation — “What day is it today?” · “Where are we right now?”</li>
+              <li>Delayed recall — “Remember these three words…”, then ask for them a few turns later</li>
+              <li>Recent memory — “What did you have for breakfast?” · “What did we talk about earlier?”</li>
+              <li>Remote memory — “Where did you grow up?” · “Tell me about your wedding.”</li>
+              <li>Sequencing — ask one question with several parts</li>
+              <li>Listen for — word-finding pauses, repetition, whether she notices her own lapses</li>
+            </ul>
+          </details>
+        </aside>
       </div>
 
-      <form id="composer" class="composer">
-        <input
-          id="input"
-          type="text"
-          autocomplete="off"
-          placeholder="Say something…"
-          maxlength="2000"
-        />
-        <button id="send" type="submit">Send</button>
-      </form>
+      <!-- The reveal. -->
+      <section id="reveal" class="reveal hidden">
+        <div class="reveal-head">
+          <div class="reveal-col">
+            <span class="muted small">She was</span>
+            <h2 id="reveal-actual"></h2>
+          </div>
+          <div class="reveal-col">
+            <span class="muted small">You said</span>
+            <h2 id="reveal-yours"></h2>
+          </div>
+          <span id="reveal-verdict" class="verdict"></span>
+        </div>
+        <div id="reveal-domains" class="reveal-domains"></div>
+        <pre id="reveal-report" class="report"></pre>
+        <div class="reveal-actions">
+          <button id="download-reveal" class="ghost">Download transcript</button>
+          <button id="reveal-back">Back to personas</button>
+        </div>
+      </section>
     </main>
 
     <script src="/static/app.js"></script>

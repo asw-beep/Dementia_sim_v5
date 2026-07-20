@@ -230,6 +230,14 @@ class Conversation:
         if overrun_note is not None:
             trace = trace.model_copy(update={"reason": f"{trace.reason}; {overrun_note}"})
 
+        # The frame she is handed instead of the true clock, and the note saying what
+        # it withheld. The note is recorded whether or not she was asked the day:
+        # what the profile took away is a fact about this turn, and only the trace
+        # can say so — nothing downstream can reconstruct it from the reply.
+        now_text, orientation_note = render_now_impaired(self._profile)
+        if orientation_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {orientation_note}"})
+
         reply_text = self._llm.generate(
             build_messages(
                 self._persona.identity,
@@ -237,7 +245,7 @@ class Conversation:
                 self._source,
                 heard,
                 history=history,
-                now_text=render_now_impaired(self._profile),
+                now_text=now_text,
                 voice_notes=voice_notes(
                     self._profile,
                     trace=trace,

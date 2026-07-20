@@ -64,10 +64,14 @@ start() {
 
   # `./run start cdr05` → data/profiles/cdr05.yaml. No argument is healthy, which
   # is the Phase 1 persona exactly: no impairment layer is constructed at all.
+  # `./run start assess` is blind assessment mode: a hidden severity is drawn per
+  # session (healthy included) and never printed — the label is the answer key.
   local profile_arg=()
-  if [[ -n "${1:-}" ]]; then
+  if [[ "${1:-}" == "assess" ]]; then
+    profile_arg=(--assessment)
+  elif [[ -n "${1:-}" ]]; then
     PROFILE_FILE="data/profiles/${1}.yaml"
-    [[ -f "$PROFILE_FILE" ]] || fail "no profile '${1}'. Available: $(ls data/profiles/*.yaml | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
+    [[ -f "$PROFILE_FILE" ]] || fail "no profile '${1}'. Available: assess $(ls data/profiles/*.yaml | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
     profile_arg=(--profile "$PROFILE_FILE")
   fi
 
@@ -209,9 +213,10 @@ case "${1:-}" in
     uv run persona seed "$SEED" 2>&1 | sed 's/^/  /'
     ;;
   *)
-    printf 'usage: ./run {start [profile]|kill|status|logs|reset}\n\n'
+    printf 'usage: ./run {start [profile|assess]|kill|status|logs|reset}\n\n'
     printf '  start          seed if needed, check the model, serve on :%s (healthy)\n' "$PORT"
     printf '  start cdr05    the same, at CDR 0.5\n'
+    printf '  start assess   blind assessment: hidden severity per session, rate it, reveal\n'
     printf '  kill           stop the server\n'
     printf '  status         what is up, whether the model answers, which severity\n'
     printf '  logs           follow the server log\n'

@@ -124,3 +124,26 @@ class TurnRow(Base):
     trace: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
 
     __table_args__ = (Index("ix_turns_session_ordinal", "session_id", "ordinal", unique=True),)
+
+
+class AssessmentRow(Base):
+    """A blind interview's answer key and, once committed, the trainee's rating.
+
+    Written at session open — the drawn severity has to live *somewhere* the reveal
+    can read, and storage is the one place that is not the UI — and completed at
+    commit. Ratings are JSON for the same reason the trace is: nothing queries into
+    them, the reveal only reads them back. Additive: no existing table changes, so
+    the standing promise that later phases need no migration is kept.
+    """
+
+    __tablename__ = "assessments"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    persona_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    actual_profile: Mapped[str] = mapped_column(String(64), nullable=False)
+    actual_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    drawn_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    ratings: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    committed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

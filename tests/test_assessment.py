@@ -11,7 +11,9 @@ recording what was asked and what never was.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +37,7 @@ from personasim.impairment import (
     retain_question,
 )
 from personasim.impairment.profile import RecallGate, Speech, WorkingMemoryHold
+from personasim.impairment.voice import render_now_impaired
 from personasim.models import EpisodicMemory, Memory, SemanticMemory
 from personasim.models.conversation import Message, Role, Turn
 from personasim.models.trace import (
@@ -46,6 +49,7 @@ from personasim.persona.seed import memory_id_for
 from tests.test_impairment import PROFILES, _Source, retrieved, session_encoding
 
 NOW = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+WEB_STATIC = Path(__file__).resolve().parents[1] / "src" / "personasim" / "web" / "static"
 
 
 def trace_of(*items: RetrievedMemory, reason: str = "test") -> MemoryTrace:
@@ -138,6 +142,58 @@ class TestVocabularyBothSides:
         parsed = notes_of(gated.reason)
         assert NoteKind.ORIENTATION in [n.kind for n in parsed]
         assert withheld_kind(gated.withheld[0].reason) is WithheldKind.PLACE
+
+    def test_the_orientation_frame_note_parses_for_every_impaired_profile(self) -> None:
+        """The frame's note, pinned from both sides like the rest.
+
+        It exists because a 3B drive found the hole it fills: at CDR 1 she lost the
+        weekday exactly as intended and the report said "no disorientation observed"
+        beside "intended: time mistaken". Every profile that degrades an axis must
+        now say so in a note the ledger can read — and healthy must still say
+        nothing, or the reader would report a deficit the profile does not have.
+        """
+        assert render_now_impaired(HEALTHY) == (None, None)
+
+        for name in ("cdr05", "cdr1", "cdr2", "cdr3"):
+            profile = load_profile(PROFILES / f"{name}.yaml")
+            _, note = render_now_impaired(profile, when=NOW)
+
+            assert note is not None, f"{name} degrades orientation but emits no note"
+            parsed = notes_of(f"factual_recall: 1 memories matched; {note}")
+            assert parsed, f"{name}'s note did not parse at all: {note!r}"
+            assert {n.kind for n in parsed} == {NoteKind.ORIENTATION}, (
+                f"{name}'s note did not parse as orientation notes: {note!r}"
+            )
+
+    def test_each_degraded_axis_is_its_own_note(self) -> None:
+        """One note per axis, not one sentence for all three.
+
+        CDR 2 loses time and place while person holds; CDR 3 loses all three. A
+        reader that could not separate them could not show that difference — and
+        showing exactly where two neighbouring stages diverge is what 3C's
+        discriminating evidence is made of.
+        """
+        _, moderate = render_now_impaired(load_profile(PROFILES / "cdr2.yaml"), when=NOW)
+        _, severe = render_now_impaired(load_profile(PROFILES / "cdr3.yaml"), when=NOW)
+
+        assert moderate is not None and severe is not None
+        assert len(notes_of(f"base; {moderate}")) == 2  # time and place; person holds
+        assert len(notes_of(f"base; {severe}")) == 3  # person goes too
+
+    def test_the_frame_note_names_each_axis_the_profile_degrades(self) -> None:
+        """Not merely parseable — *specific*. A note that parsed but said the same
+        thing at every stage would let the ledger show a CDR 3 as a CDR 1."""
+        _, mild = render_now_impaired(load_profile(PROFILES / "cdr05.yaml"), when=NOW)
+        _, moderate = render_now_impaired(load_profile(PROFILES / "cdr1.yaml"), when=NOW)
+        _, severe = render_now_impaired(load_profile(PROFILES / "cdr3.yaml"), when=NOW)
+
+        assert mild is not None and moderate is not None and severe is not None
+        # CDR 0.5 keeps the weekday and only loosens her grip on it; CDR 1 takes it.
+        assert "held loosely" in mild and "withheld" not in mild
+        assert "the weekday and the date are withheld" in moderate
+        # CDR 3 takes place and the speaker too — three axes, three notes.
+        assert "the month and the year" in severe
+        assert "who is speaking" in severe
 
     def test_the_recall_gate_reason_and_summary_parse(self) -> None:
         lunch = EpisodicMemory(
@@ -247,6 +303,34 @@ class TestProbeClassification:
     def test_a_compound_question_serves_several_types(self) -> None:
         types = classify_probe("What day is it, and can you tell me where you are?")
         assert {ProbeType.ORIENTATION_TIME, ProbeType.ORIENTATION_PLACE} <= types
+
+    def test_the_probe_is_put_in_the_first_person_plural(self) -> None:
+        """ "Where are *we*?" is how the question is actually asked at the bedside.
+
+        The probe bank only ever wrote it as "where you are", so the classifier
+        missed the commoner phrasing — and coverage then told a trainee who had
+        asked about place that place was never probed. A miss that says "never
+        asked" is worse than no coverage line at all, which is why this is pinned.
+        """
+        assert ProbeType.ORIENTATION_PLACE in classify_probe("Where are we right now?")
+        assert ProbeType.ORIENTATION_PLACE in classify_probe("Do you know what room we're in?")
+        assert ProbeType.RECENT_EPISODIC in classify_probe("What did we talk about earlier?")
+
+    def test_every_question_the_interview_guide_suggests_is_classifiable(self) -> None:
+        """The guide and the classifier, pinned to each other.
+
+        The web worksheet's interview guide recommends phrasings; the ledger reports
+        what those phrasings elicited. If the guide suggests a question the
+        classifier cannot see, the app tells the trainee to ask something and then
+        reports they never asked it — which is exactly what both bugs above did. So
+        the guide is read out of the page and every question in it must classify.
+        """
+        guide = (WEB_STATIC / "index.html").read_text()
+        block = guide.split("<summary>Interview guide</summary>", 1)[1].split("</ul>", 1)[0]
+        questions = re.findall(r"“([^”]+)”", block)
+
+        assert len(questions) >= 6, "the guide's quoted questions were not found"
+        assert {q: bool(classify_probe(q)) for q in questions} == dict.fromkeys(questions, True)
 
 
 class TestLedger:
