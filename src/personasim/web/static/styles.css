@@ -1,28 +1,115 @@
+/* Persona Simulator — the visual language, adopted from Project v4.
+ *
+ * The palette, the type family and the type scale are v4's, carried over verbatim
+ * so the two products read as one. Everything else here — the layout, the
+ * components, the motion, the two-surface idea below — is v5's and unchanged.
+ *
+ * Two surfaces, and the difference between them is the whole idea.
+ *
+ * THE ROOM is where you talk to her: the warm off-white ground, soft-edged. It
+ * should feel like sitting with someone.
+ *
+ * THE PAPER is where you read the record — the reveal, the coach, the ledger, the
+ * history: true white, lifted off the warm room by luminance and a shadow, ruled
+ * like a clinical form. Committing a rating ends the conversation and turns the
+ * lights on, and that shift is meant to be felt. You stop talking to a person and
+ * start reading about a patient.
+ *
+ * Every component is written against semantic tokens (--bg, --ink, --accent …), so
+ * a surface is declared by *re-binding the tokens* rather than by restyling
+ * anything. Paper is four rules at the bottom of the token block.
+ *
+ * Type is v4's: Geist for everything, Inter as its fallback, JetBrains Mono for
+ * the machine-readable — traces, evidence, the raw ledger. v4 sets no serif, so
+ * neither do we; --serif remains as a seam (her voice, display headings) but is
+ * bound to the same family as the rest.
+ *
+ * v4 is a light product with no dark mode, so this is a single light theme. The
+ * base size is v4's 18px, which is a deliberately large-type UI.
+ *
+ * Motion marks state changes and never decorates. All of it collapses under
+ * prefers-reduced-motion, at the bottom of this file.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ============================================================ tokens */
+
 :root {
-  --bg: #12110f;
-  --panel: #1b1a17;
-  --line: #2e2c28;
-  --ink: #eae6de;
-  --muted: #8f897e;
-  --user: #2f5d50;
-  --her: #24221e;
-  --accent: #c9a227;
-  --danger: #a5453b;
-  --radius: 14px;
+  /* ---- the room — v4's warm off-white ground (--bg-0) with white panels */
+  --bg: #f8f6f3;
+  --panel: #ffffff;
+  --line: rgba(0, 0, 0, 0.08);
+  --ink: #1a1a1a;
+  --muted: #6b6b6b;
+  --her: #ffffff;
+  /* v4 marks the two speakers by hue, not by weight: the patient in orange, the
+     other voice in teal. Orange is the accent here, so the caregiver takes teal. */
+  --you: #0f766e;
+  --you-ink: #f2f8f7;
+  --accent: #ea580c;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(234, 88, 12, 0.08);
+  --accent-glow: rgba(234, 88, 12, 0.18);
+  --good: #15803d;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --shadow:
+    0 8px 24px rgba(0, 0, 0, 0.08), 0 20px 60px rgba(0, 0, 0, 0.09);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* ---- type: v4 sets no serif, so --serif is bound to the same family */
+  --sans: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* v4's ladder: 12 · 13 · 14 · 16 · 18 · 20 · 24 · 34 · 50, on an 18px base. */
+  --t-2xs: 12px;
+  --t-xs: 13px;
+  --t-sm: 14px;
+  --t-md: 16px;
+  --t-base: 18px;
+  --t-lg: 20px;
+  --t-xl: 24px;
+  --t-2xl: 34px;
+  --t-3xl: 50px;
+
+  /* ---- space */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+
+  /* v4: 8px on controls, 12px on panels, 20px on cards. */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+
+  /* ---- motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 140ms;
+  --mid: 260ms;
+  --slow: 480ms;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f7f5f0;
-    --panel: #fffdf8;
-    --line: #e3ded2;
-    --ink: #23211d;
-    --muted: #7a7466;
-    --user: #d6ebe2;
-    --her: #f0ece2;
-    --accent: #8a6d1f;
-  }
+/* Paper is true white (v4's --bg-1), lifted off the warm room (--bg-0) by
+   luminance and a shadow. The accent and the status hues do not shift between the
+   two surfaces — v4 carries one orange throughout, and so do we. */
+#reveal,
+#review-view,
+.history {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --line: rgba(0, 0, 0, 0.07);
+  --her: #ffffff;
 }
+
+/* ============================================================ base */
 
 * {
   box-sizing: border-box;
@@ -32,9 +119,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.55 ui-serif, Georgia, "Times New Roman", serif;
+  font: var(--t-base) / 1.6 var(--sans);
   height: 100vh;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background var(--slow) var(--ease);
 }
 
 .hidden {
@@ -43,308 +133,197 @@ body {
 .muted {
   color: var(--muted);
 }
+.small {
+  font-size: var(--t-md);
+}
 
-/* ---------------- gallery ---------------- */
+button {
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 15px;
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.ghost {
+  color: var(--muted);
+}
+button.danger {
+  color: var(--danger);
+  border-color: transparent;
+}
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* A label: small, tracked, sans. Used for every field name in the instrument. */
+.ws-label,
+.cap,
+th,
+.badge,
+.verdict,
+.sub {
+  font-family: var(--sans);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ============================================================ gallery */
 
 #gallery {
-  max-width: 900px;
+  max-width: 940px;
   margin: 0 auto;
-  padding: 64px 24px;
+  padding: var(--s8) var(--s5) var(--s8);
   height: 100vh;
   overflow-y: auto;
 }
 
 .gallery-head h1 {
-  margin: 0 0 4px;
-  font-size: 34px;
-  letter-spacing: -0.01em;
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-3xl);
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }
-.gallery-head p {
-  margin: 0 0 32px;
+.gallery-head > p {
+  margin: 0 0 var(--s5);
+  color: var(--muted);
+}
+
+.assess-note {
+  margin: 0 0 var(--s6);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: var(--t-base);
+  animation: rise var(--slow) var(--ease-out) backwards;
+}
+.assess-caveat {
+  display: block;
+  margin-top: var(--s2);
+  font-size: var(--t-md);
+  color: var(--muted);
 }
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: var(--s4);
 }
-
 .card {
+  text-align: left;
+  padding: var(--s5);
+  border-radius: var(--radius);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 22px;
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
-  transition:
-    border-color 0.15s ease,
-    transform 0.15s ease;
+  animation: rise var(--slow) var(--ease-out) backwards;
+  animation-delay: 60ms;
 }
-.card:hover,
-.card:focus-visible {
+.card:hover {
   border-color: var(--accent);
   transform: translateY(-2px);
-  outline: none;
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
 }
-
 .card h2 {
-  margin: 0;
-  font-size: 21px;
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-xl);
+  font-weight: 500;
 }
 .card .role {
-  margin: 2px 0 10px;
-  font-size: 13px;
-  letter-spacing: 0.06em;
+  margin: 0 0 var(--s3);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
   text-transform: uppercase;
+  font-weight: 600;
   color: var(--muted);
 }
-.card p.desc {
+.card .desc {
   margin: 0;
-  font-size: 15px;
-  color: var(--ink);
-  opacity: 0.85;
-  /* two lines, as authored */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-clamp: 2;
-  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.55;
 }
 
 .empty {
   color: var(--muted);
-}
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  background: var(--panel);
-  padding: 2px 6px;
-  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: var(--t-md);
 }
 
-/* ---------------- chat ---------------- */
+/* ============================================================ chat — the room */
 
+.view {
+  height: 100vh;
+}
 #chat {
   display: flex;
   flex-direction: column;
-  height: 100vh;
 }
 
 .navbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 20px;
+  gap: var(--s4);
+  padding: var(--s3) var(--s5);
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  flex: 0 0 auto;
 }
 .navbar .who {
   display: flex;
   flex-direction: column;
-  line-height: 1.25;
-  margin-right: auto;
+  line-height: 1.3;
 }
-.navbar .who span:first-child {
-  font-size: 17px;
+#chat-name {
+  font-family: var(--serif);
+  font-size: var(--t-lg);
 }
-.navbar .who .muted {
-  font-size: 12px;
+#chat-sub {
+  font-size: var(--t-sm);
+  color: var(--muted);
 }
 .navbar .actions {
+  margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
 }
-
-button {
-  font: inherit;
-  font-size: 14px;
-  border-radius: 9px;
-  padding: 8px 14px;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink);
-}
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-button.danger {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-button.danger:hover:not(:disabled) {
-  background: var(--danger);
-  color: #fff;
-}
-#send {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #12110f;
-}
-
-.messages {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  padding: 28px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 820px;
-  width: 100%;
-  margin: 0 auto;
-}
-
-.row {
-  display: flex;
-}
-.row.user {
-  justify-content: flex-end;
-}
-.row.persona {
-  justify-content: flex-start;
-}
-
-.bubble {
-  max-width: 74%;
-  padding: 12px 16px;
-  border-radius: var(--radius);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.row.user .bubble {
-  background: var(--user);
-  border-bottom-right-radius: 4px;
-}
-.row.persona .bubble {
-  background: var(--her);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 4px;
-}
-
-.bubble.thinking {
-  color: var(--muted);
-  font-style: italic;
-}
-.bubble.error {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-/* The memory trace: why she said that. Folded away, never hidden. */
-.why {
-  margin-top: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-.why summary {
-  cursor: pointer;
-  color: var(--muted);
-  list-style: none;
-}
-.why summary::-webkit-details-marker {
-  display: none;
-}
-.why summary:hover {
-  color: var(--accent);
-}
-.why .reason {
-  color: var(--muted);
-  margin: 8px 0 6px;
-}
-.why ul {
-  margin: 0;
-  padding-left: 16px;
-  color: var(--muted);
-}
-.why li {
-  margin-bottom: 3px;
-}
-.why .score {
-  color: var(--accent);
-}
-.why .via {
-  color: var(--muted);
-  opacity: 0.75;
-}
-.why .formed {
-  margin-top: 8px;
-  color: var(--accent);
-}
-
-.composer {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 10px;
-  padding: 16px 20px 22px;
-  border-top: 1px solid var(--line);
-  max-width: 820px;
-  width: 100%;
-  margin: 0 auto;
-}
-#input {
-  flex: 1;
-  font: inherit;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-}
-#input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.ended {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 18px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-}
-
-/* ---------------- assessment: the worksheet, the reveal ---------------- */
-
-.assess-note {
-  margin: 0 0 24px;
-  padding: 12px 16px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--panel);
-  font-size: 15px;
-}
-
-.assess-caveat {
-  display: block;
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--muted);
+#back {
+  padding: 7px 13px;
 }
 
 .badge {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 999px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-
-.small {
-  font-size: 13px;
+  padding: 5px 12px;
+  background: var(--accent-soft);
 }
 
 .chat-body {
@@ -359,40 +338,218 @@ button.danger:hover:not(:disabled) {
   min-width: 0;
 }
 
+.messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--s6) var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.row {
+  display: flex;
+}
+.row.user {
+  justify-content: flex-end;
+}
+
+/* Her voice. v4 sets its transcript a step above the body size and a shade looser
+   than the instrument around it, and that is what carries the warmth here now
+   that the serif is gone. */
+.bubble {
+  position: relative;
+  max-width: min(62ch, 78%);
+  padding: 11px var(--s4);
+  border-radius: var(--radius);
+  background: var(--her);
+  font-family: var(--serif);
+  font-size: var(--t-lg);
+  line-height: 1.65;
+  /* White on v4's off-white ground is a two-point delta — every white surface in
+     v4 is drawn by its hairline, not by its fill. */
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--mid) var(--ease-out) backwards;
+}
+.row.persona .bubble {
+  border-bottom-left-radius: var(--radius-sm);
+}
+.row.user .bubble {
+  background: var(--you);
+  color: var(--you-ink);
+  border-color: transparent;
+  border-bottom-right-radius: var(--radius-sm);
+}
+.bubble.error {
+  color: var(--danger);
+  font-family: var(--sans);
+  font-size: var(--t-md);
+}
+
+/* Waiting on her. A travelling dot rather than a static ellipsis — the model can
+   take half a minute, and a still page reads as a broken one. */
+.bubble.thinking {
+  color: transparent;
+  min-width: 74px;
+  min-height: 42px;
+}
+.bubble.thinking::after {
+  content: "";
+  position: absolute;
+  left: var(--s4);
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow:
+    12px 0 var(--muted),
+    24px 0 var(--muted);
+  animation: travel 1.15s steps(1) infinite;
+}
+
+.composer {
+  display: flex;
+  gap: var(--s2);
+  padding: var(--s4) var(--s5) var(--s5);
+  border-top: 1px solid var(--line);
+}
+#input {
+  flex: 1 1 auto;
+  padding: 12px var(--s4);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: var(--t-base);
+  transition:
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+}
+#input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+#send {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 600;
+  padding-inline: var(--s5);
+}
+#send:hover:not(:disabled) {
+  color: var(--accent-ink);
+  filter: brightness(1.08);
+}
+
+.ended {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--t-md);
+  animation: rise var(--mid) var(--ease-out) backwards;
+}
+
+/* ---- the why-panel (Stage 9, and review mode reuses it wholesale) */
+
+.why {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px dashed var(--line);
+  font-family: var(--sans);
+  font-size: var(--t-sm);
+}
+.why summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  transition: color var(--fast) var(--ease);
+}
+.why summary::-webkit-details-marker {
+  display: none;
+}
+.why summary:hover {
+  color: var(--accent);
+}
+.why[open] summary {
+  margin-bottom: var(--s2);
+}
+.why .reason,
+.why .formed {
+  margin: 0 0 var(--s2);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  color: var(--muted);
+}
+.why .formed {
+  color: var(--good);
+}
+.why ul {
+  margin: 0 0 var(--s2);
+  padding-left: var(--s4);
+  color: var(--muted);
+}
+.why li {
+  margin-bottom: 3px;
+  line-height: 1.5;
+}
+.why .score,
+.why .via {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+}
+.why .withheld li {
+  color: var(--warn);
+}
+
+/* ============================================================ worksheet */
+
 .worksheet {
-  flex: 0 0 300px;
+  flex: 0 0 312px;
   border-left: 1px solid var(--line);
   background: var(--panel);
-  padding: 20px 18px;
+  padding: var(--s5) var(--s4);
   overflow-y: auto;
 }
 .worksheet h2 {
-  margin: 0 0 4px;
-  font-size: 19px;
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-xl);
+  font-weight: 500;
 }
 .worksheet > p {
-  margin: 0 0 16px;
+  margin: 0 0 var(--s5);
+  color: var(--muted);
+  font-size: var(--t-md);
 }
 
 .ws-rows {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: var(--s3);
+  margin-bottom: var(--s5);
 }
 .ws-row {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 .ws-row.global {
-  padding-top: 12px;
+  padding-top: var(--s4);
   border-top: 1px solid var(--line);
 }
 .ws-label {
-  font-size: 13px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   color: var(--muted);
 }
 .ws-row.global .ws-label {
@@ -400,25 +557,13 @@ button.danger:hover:not(:disabled) {
 }
 .ws-note {
   display: block;
-  margin-top: 2px;
-  font-size: 11px;
+  margin-top: 3px;
+  font-size: var(--t-2xs);
   letter-spacing: 0;
   text-transform: none;
+  font-weight: 400;
   font-style: italic;
   opacity: 0.75;
-}
-
-/* The anchor: the scale's own words for the rating under the cursor. Reserve the
-   space so reading down the column does not shift the rows about. */
-.ws-anchor {
-  margin: 6px 0 0;
-  min-height: 32px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--muted);
-}
-.ws-anchor.preview {
-  color: var(--accent);
 }
 
 .chips {
@@ -427,41 +572,72 @@ button.danger:hover:not(:disabled) {
 }
 .chip {
   flex: 1;
-  padding: 6px 0;
-  font-size: 13px;
+  padding: 8px 0;
+  font-size: var(--t-md);
   font-variant-numeric: tabular-nums;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.chip:hover:not(.on) {
+  transform: translateY(-1px);
 }
 .chip.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #12110f;
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 3px 14px var(--accent-glow);
+  animation: pick var(--mid) var(--ease-out);
+}
+
+/* The anchor: reserve enough space that picking a rating does not shove the rows
+   below it down the page — but only one line's worth, because an unrated worksheet
+   reserving two lines per domain reads as five gaps rather than five questions. */
+.ws-anchor {
+  margin: 6px 0 0;
+  min-height: 18px;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  color: var(--muted);
+  transition: color var(--fast) var(--ease);
+}
+.ws-anchor.preview {
+  color: var(--accent);
 }
 
 #commit {
   width: 100%;
-  padding: 11px;
+  padding: 12px;
   border-color: var(--accent);
   color: var(--accent);
+  font-weight: 600;
 }
-#commit:hover:not(:disabled),
+#commit:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+/* Armed: the second click reveals the answer, so the button says so and breathes. */
 #commit.armed {
   background: var(--accent);
-  color: #12110f;
+  color: var(--accent-ink);
+  animation: pulse 1.6s var(--ease) infinite;
 }
 #commit-hint {
-  margin: 8px 0 0;
-  min-height: 1.2em;
+  margin: var(--s2) 0 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+  min-height: 2.4em;
 }
 
 .guide {
-  margin-top: 20px;
-  font-size: 13px;
+  margin-top: var(--s5);
+  font-size: var(--t-sm);
   color: var(--muted);
 }
 .guide summary {
   cursor: pointer;
   list-style: none;
+  transition: color var(--fast) var(--ease);
 }
 .guide summary::-webkit-details-marker {
   display: none;
@@ -470,58 +646,80 @@ button.danger:hover:not(:disabled) {
   color: var(--accent);
 }
 .guide ul {
-  margin: 8px 0 0;
-  padding-left: 16px;
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
 }
 .guide li {
   margin-bottom: 6px;
+  line-height: 1.5;
 }
 
-/* the reveal */
+/* ============================================================ the paper */
 
-.reveal {
+#reveal,
+#review-view {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 36px 24px;
-  max-width: 860px;
+  padding: var(--s7) var(--s5) var(--s8);
   width: 100%;
-  margin: 0 auto;
+  background: var(--bg);
+  color: var(--ink);
+  animation: lights-up var(--slow) var(--ease-out);
 }
+#reveal > *,
+#review-view > * {
+  max-width: 880px;
+  margin-inline: auto;
+}
+
 .reveal-head {
   display: flex;
-  align-items: center;
-  gap: 40px;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  gap: var(--s7);
+  margin-bottom: var(--s5);
+  padding-bottom: var(--s5);
+  border-bottom: 2px solid var(--ink);
+}
+.reveal-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
 }
 .reveal-col h2 {
-  margin: 2px 0 0;
-  font-size: 24px;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--t-2xl);
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }
+.sub,
+.reveal-col .muted {
+  color: var(--muted);
+}
+
 .verdict {
   margin-left: auto;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   border-radius: 999px;
-  padding: 5px 14px;
+  padding: 6px 15px;
   border: 1px solid var(--line);
+  animation: pick var(--slow) var(--ease-out) 200ms backwards;
 }
 .verdict.match {
-  border-color: var(--user);
-  color: var(--ink);
-  background: var(--user);
+  border-color: var(--good);
+  color: var(--good);
 }
+/* A miss is the thing you learn from, not an error. Amber, never red. */
 .verdict.miss {
-  border-color: var(--danger);
-  color: var(--danger);
+  border-color: var(--warn);
+  color: var(--warn);
 }
 
 .reveal-domains {
   display: flex;
-  gap: 26px;
+  gap: var(--s6);
   flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding-bottom: 18px;
+  margin-bottom: var(--s5);
+  padding-bottom: var(--s5);
   border-bottom: 1px solid var(--line);
 }
 .reveal-domain {
@@ -530,159 +728,316 @@ button.danger:hover:not(:disabled) {
   gap: 2px;
 }
 .reveal-domain .val {
-  font-size: 16px;
+  font-size: var(--t-lg);
+  font-variant-numeric: tabular-nums;
 }
 .reveal-domain.missed .val {
-  color: var(--danger);
+  color: var(--warn);
 }
 .reveal-domain .was {
-  font-size: 12px;
+  font-size: var(--t-xs);
   color: var(--muted);
 }
 
-/* The coach. One card per domain, and the kind is carried by a coloured edge
-   rather than by shouting: a miss should be legible, not punitive. */
+/* ---- coach */
+
 .coach {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-bottom: 24px;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
 }
 .coach-card {
   border: 1px solid var(--line);
   border-left-width: 3px;
   border-radius: var(--radius);
   background: var(--panel);
-  padding: 16px 18px;
+  padding: var(--s4) var(--s5);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--slow) var(--ease-out) backwards;
+}
+.coach-card:nth-child(1) {
+  animation-delay: 80ms;
+}
+.coach-card:nth-child(2) {
+  animation-delay: 160ms;
+}
+.coach-card:nth-child(3) {
+  animation-delay: 240ms;
+}
+.coach-card:nth-child(4) {
+  animation-delay: 320ms;
+}
+.coach-card:nth-child(n + 5) {
+  animation-delay: 400ms;
 }
 .coach-card.discriminating {
-  border-left-color: var(--danger);
+  border-left-color: var(--warn);
 }
 .coach-card.coverage {
   border-left-color: var(--accent);
 }
 .coach-card.confirming {
-  border-left-color: var(--user);
+  border-left-color: var(--good);
 }
 .coach-card h3 {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  margin: 0 0 10px;
-  font-size: 15px;
+  gap: var(--s3);
+  margin: 0 0 var(--s3);
+  font-size: var(--t-base);
+  font-weight: 600;
 }
 .coach-card .tag {
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--muted);
+  font-weight: 700;
+}
+.coach-card.discriminating .tag {
+  color: var(--warn);
+}
+.coach-card.coverage .tag {
+  color: var(--accent);
+}
+.coach-card.confirming .tag {
+  color: var(--good);
 }
 .coach-card .dom {
   text-transform: capitalize;
 }
 .coach-line {
   margin: 0 0 7px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--t-base);
+  line-height: 1.55;
 }
-/* Evidence is set in mono and indented: it is quoted from the ledger, and a
-   trainee must be able to tell what the system observed from what it concluded. */
+/* Evidence is quoted from the ledger — set in mono and indented so a trainee can
+   always tell what was observed from what was concluded. */
 .coach-evidence {
-  margin: 0 0 5px 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
-  line-height: 1.5;
+  margin: 0 0 5px var(--s4);
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  line-height: 1.55;
   color: var(--muted);
 }
 
-/* Review mode reuses the chat bubbles and the why-panel wholesale; it only needs
-   a pane that scrolls on its own. */
-.review-note {
-  margin: 0 0 16px;
-}
-.review-turns {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
-  background: var(--panel);
-  max-height: none;
-}
-
-/* The history. Deliberately a plain table: a mirror, not a scoreboard. The miss
-   column is coloured but nothing is totalled, ranked or congratulated. */
-.history {
-  margin-top: 40px;
-  padding-top: 28px;
-  border-top: 1px solid var(--line);
-}
-.history h2 {
-  margin: 0 0 4px;
-  font-size: 19px;
-}
-.history > p {
-  margin: 0 0 16px;
-}
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.history-table th {
-  text-align: left;
-  padding: 8px 12px 8px 0;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 500;
-  border-bottom: 1px solid var(--line);
-}
-.history-table td {
-  padding: 9px 12px 9px 0;
-  border-bottom: 1px solid var(--line);
-  font-variant-numeric: tabular-nums;
-}
-.history-table .verdict-cell {
-  text-align: right;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding-right: 0;
-}
-.history-table tr.hit .verdict-cell {
-  color: var(--user);
-}
-.history-table tr.miss .verdict-cell {
-  color: var(--danger);
-}
+/* ---- raw ledger, folded away */
 
 .ledger-details {
-  margin-bottom: 20px;
+  margin-bottom: var(--s5);
 }
 .ledger-details summary {
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--t-md);
   color: var(--muted);
-  margin-bottom: 10px;
+  margin-bottom: var(--s3);
+  transition: color var(--fast) var(--ease);
 }
 .ledger-details summary:hover {
   color: var(--accent);
 }
-
 pre.report {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  line-height: 1.65;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: var(--s5);
   overflow-x: auto;
+  margin: 0;
   white-space: pre-wrap;
 }
 
 .reveal-actions {
   display: flex;
-  gap: 10px;
-  margin-top: 18px;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+
+/* ---- review mode */
+
+.review-note {
+  margin: 0 0 var(--s4);
+  color: var(--muted);
+}
+.review-turns {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s5);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  overflow: visible;
+  flex: none;
+}
+
+/* ---- history */
+
+.history {
+  margin-top: var(--s7);
+  padding: var(--s5) var(--s5) var(--s4);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  animation: rise var(--slow) var(--ease-out) 120ms backwards;
+}
+.history h2 {
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-xl);
+  font-weight: 500;
+}
+.history > p {
+  margin: 0 0 var(--s4);
+  color: var(--muted);
+}
+/* Eight columns of "CDR 0 (healthy)" wrap to two lines at any sane width, which
+   turns a scannable record into a wall. The ratings stay on one line and the table
+   scrolls sideways if it must — a history is read down the verdict column. */
+.history {
+  overflow-x: auto;
+}
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-md);
+  white-space: nowrap;
+}
+.history-table td:nth-child(2) {
+  white-space: normal;
+  min-width: 15ch;
+}
+.history-table th {
+  text-align: left;
+  padding: 0 var(--s3) var(--s2) 0;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.history-table td {
+  padding: 10px var(--s3) 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.history-table tr:last-child td {
+  border-bottom: none;
+}
+.history-table .verdict-cell {
+  text-align: right;
+  padding-right: 0;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.history-table tr.hit .verdict-cell {
+  color: var(--good);
+}
+.history-table tr.miss .verdict-cell {
+  color: var(--warn);
+}
+
+/* ============================================================ motion */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes lights-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.995);
+  }
+}
+
+@keyframes pick {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* Three dots, one lit at a time. Drawn with box-shadow so it needs no markup. */
+@keyframes travel {
+  0% {
+    background: var(--ink);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--muted);
+  }
+  33% {
+    background: var(--muted);
+    box-shadow:
+      12px 0 var(--ink),
+      24px 0 var(--muted);
+  }
+  66% {
+    background: var(--muted);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--ink);
+  }
+  100% {
+    background: var(--ink);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--muted);
+  }
+}
+
+/* Motion here marks state changes, so under reduced-motion the states still have
+   to read — everything collapses to an instant, nothing is removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .bubble.thinking::after {
+    animation: none;
+    background: var(--muted);
+  }
+}
+
+/* ============================================================ narrow */
+
+@media (max-width: 900px) {
+  .chat-body {
+    flex-direction: column;
+  }
+  .worksheet {
+    flex: none;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .reveal-head {
+    gap: var(--s5);
+    flex-wrap: wrap;
+  }
+  #gallery {
+    padding: var(--s6) var(--s4);
+  }
 }
