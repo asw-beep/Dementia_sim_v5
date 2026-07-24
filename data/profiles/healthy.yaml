@@ -9,7 +9,7 @@
 # makes the impairment layer a wrapper rather than an edit.
 
 name: healthy
-label: "Healthy — nothing is gated"
+label: "CDR 0"
 
 recall:
   recent_window_days: 0

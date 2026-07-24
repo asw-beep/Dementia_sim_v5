@@ -10,17 +10,10 @@
     <!-- The gallery. One persona today; the layout assumes there will be more. -->
     <main id="gallery" class="view">
       <header class="gallery-head">
-        <h1>Personas</h1>
-        <p class="muted">Choose someone to talk to.</p>
+        <h1>Persona</h1>
         <p id="assess-note" class="assess-note hidden">
-          Blind assessment: her severity is drawn at random — she may be perfectly
-          healthy. Interview, rate, commit; only then is the truth shown.
-          <span class="assess-caveat">
-            The blindness is a training contract, not a security boundary — the draw
-            is in the database, and the server log knows the pool. It is withheld
-            from this page so you can be wrong honestly; going to look only cheats
-            you.
-          </span>
+          Blind assessment: CDR severity is drawn at random. The patient may be perfectly
+          healthy. Interview, rate, commit and check.
         </p>
       </header>
       <div id="cards" class="cards"></div>
@@ -30,20 +23,17 @@
            healthy patients sees the column and draws their own conclusion. -->
       <section id="history" class="history hidden">
         <h2>Your past interviews</h2>
-        <p class="muted small">
-          What she was, what you said. No score is kept — the pattern is the point.
-        </p>
         <table id="history-table" class="history-table">
           <thead>
             <tr>
-              <th>When</th>
-              <th>She was</th>
-              <th>You said</th>
+              <th>Time</th>
+              <th>Real</th>
+              <th>Predicted</th>
               <th>Memory</th>
-              <th>Orient.</th>
-              <th>Judg.</th>
-              <th>Lang.</th>
-              <th></th>
+              <th>Orientation</th>
+              <th>Judgement</th>
+              <th>Language</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody id="history-rows"></tbody>
@@ -64,8 +54,8 @@
         </div>
         <span id="mode-badge" class="badge hidden">Blind assessment</span>
         <div class="actions">
-          <button id="download" class="ghost">Download transcript</button>
-          <button id="end" class="danger">End conversation</button>
+          <button id="download" class="ghost">Download Transcript</button>
+          <button id="end" class="danger">End Conversation</button>
         </div>
       </nav>
 
@@ -96,8 +86,8 @@
         <aside id="worksheet" class="worksheet hidden">
           <h2>Your rating</h2>
           <p class="muted small">
-            Rate as you go — change your mind freely. Committing ends the
-            interview and shows the truth.
+            Rate as you go. Committing ends the
+            interview.
           </p>
           <div id="ws-rows" class="ws-rows"></div>
           <button id="commit" disabled>Commit rating</button>

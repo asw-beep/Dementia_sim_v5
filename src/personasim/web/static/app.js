@@ -90,7 +90,7 @@ async function loadPersonas() {
         <p class="role"></p>
         <p class="desc"></p>`;
       card.querySelector("h2").textContent = p.name;
-      card.querySelector(".role").textContent = `${p.occupation} · ${p.age}`;
+      card.querySelector(".role").textContent = `${p.occupation}  ${p.age} yrs`;
       card.querySelector(".desc").textContent = p.description ?? "";
       card.addEventListener("click", () => openChat(p));
       return card;
@@ -108,7 +108,7 @@ async function openChat(p) {
   sessionId = (await res.json()).session_id;
 
   $("chat-name").textContent = p.name;
-  $("chat-sub").textContent = `${p.occupation} · ${p.age}`;
+  $("chat-sub").textContent = `${p.occupation}  ${p.age} yrs`;
   messages.replaceChildren();
   ended.classList.add("hidden");
   reveal.classList.add("hidden");
@@ -325,7 +325,7 @@ function refreshCommit() {
   commit.classList.toggle("armed", armed);
 
   if (!ready) {
-    hint.textContent = "A global CDR is required; domains are optional.";
+    hint.textContent = "An overall CDR is required; domains are optional.";
   } else if (turns < 8 && !armed) {
     hint.textContent = `Only ${turns} exchange${turns === 1 ? "" : "s"} so far — little evidence has been gathered.`;
   } else {
@@ -361,7 +361,13 @@ $("commit").addEventListener("click", async () => {
 // ---------------------------------------------------------------- the reveal
 
 const fmtCDR = (v) =>
-  v === null || v === undefined ? "—" : v === 0 ? "CDR 0 (healthy)" : `CDR ${v}`;
+  v === null || v === undefined ? "—" : `CDR ${v}`;
+
+// The profile names are healthy, cdr05, cdr1, cdr2, cdr3 — the display should be
+// exactly one of CDR 0, CDR 0.5, CDR 1, CDR 2, CDR 3, never the fuller prose the
+// profile's own label carries (that's for the report, not the card).
+const ACTUAL_DISPLAY = { healthy: "CDR 0", cdr05: "CDR 0.5", cdr1: "CDR 1", cdr2: "CDR 2", cdr3: "CDR 3" };
+const fmtActual = (name) => ACTUAL_DISPLAY[name] ?? name;
 
 function showReveal(outcome) {
   $("chat-body").classList.add("hidden");
@@ -369,7 +375,7 @@ function showReveal(outcome) {
   // invitation to a 404.
   $("end").classList.add("hidden");
 
-  $("reveal-actual").textContent = outcome.actual.label;
+  $("reveal-actual").textContent = fmtActual(outcome.actual.name);
   $("reveal-yours").textContent = fmtCDR(outcome.ratings.global);
 
   const verdict = $("reveal-verdict");
@@ -462,7 +468,7 @@ async function loadHistory() {
     const r = row.ratings ?? {};
     for (const text of [
       when,
-      row.actual.label,
+      fmtActual(row.actual.name),
       fmtCDR(r.global),
       fmtCDR(r.memory),
       fmtCDR(r.orientation),
@@ -492,7 +498,7 @@ $("review").addEventListener("click", async () => {
   if (!res.ok) return;
   const data = await res.json();
 
-  $("review-actual").textContent = data.actual.label;
+  $("review-actual").textContent = fmtActual(data.actual.name);
   const pane = $("review-turns");
   pane.replaceChildren();
   for (const turn of data.turns) {

@@ -195,9 +195,10 @@ th,
 /* ============================================================ gallery */
 
 #gallery {
-  max-width: 940px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: var(--s8) var(--s5) var(--s8);
+  padding: var(--s8) var(--s6) var(--s8);
+  width: 100%;
   height: 100vh;
   overflow-y: auto;
 }
@@ -224,13 +225,6 @@ th,
   font-size: var(--t-base);
   animation: rise var(--slow) var(--ease-out) backwards;
 }
-.assess-caveat {
-  display: block;
-  margin-top: var(--s2);
-  font-size: var(--t-md);
-  color: var(--muted);
-}
-
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));

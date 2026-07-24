@@ -268,7 +268,7 @@ class CognitiveProfile(BaseModel):
 
 #: The profile that changes nothing. `Conversation` defaults to it, so every
 #: Phase 1 call site keeps its exact behaviour without being touched.
-HEALTHY = CognitiveProfile(name="healthy", label="Healthy — nothing is gated")
+HEALTHY = CognitiveProfile(name="healthy", label="CDR 0")
 
 
 def load_profile(path: Path) -> CognitiveProfile:

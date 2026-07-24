@@ -40,12 +40,12 @@ domains:
   note: ''
 - key: judgment
   label: Judgment
-  note: judgment and problem solving
+  note: ''
 - key: language
   label: Language
-  note: supporting observation, not a CDR box
+  note: ''
 - key: global
-  label: Global CDR
+  label: Overall CDR
   note: ''
 anchors:
   memory:

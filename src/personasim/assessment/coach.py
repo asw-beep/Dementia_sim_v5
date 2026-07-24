@@ -457,4 +457,4 @@ def _lowered(text: str) -> str:
 
 
 def _cdr(rung: float) -> str:
-    return "CDR 0 (healthy)" if rung == 0.0 else f"CDR {rung:g}"
+    return f"CDR {rung:g}"
