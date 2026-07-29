@@ -69,6 +69,18 @@ async function loadMode() {
   }
   $("assess-note").classList.toggle("hidden", !assessing);
   $("mode-badge").classList.toggle("hidden", !assessing);
+
+  // The hero says what this session actually is. In assessment mode that is a test
+  // with a hidden answer; in plain mode it is a conversation, and promising a CDR
+  // rating there would be promising something nobody is scoring.
+  // No pronouns in any of it: the cast is a woman and a man, and the gallery is
+  // the one screen that speaks about all of them at once.
+  $("hero-line").textContent = assessing
+    ? "Each patient carries a hidden cognitive state. Conduct the interview and decide their CDR rating from the conversation alone."
+    : "Each patient is authored down to the last memory. Talk, then open “why?” on any answer to see what was recalled — and what was not.";
+  $("hero-quiet").textContent = assessing
+    ? "There is no visible indicator of decline. The conversation is the only instrument you have."
+    : "Everything said comes from somewhere. Nothing is invented twice.";
 }
 
 // ---------------------------------------------------------------- gallery
@@ -83,19 +95,71 @@ async function loadPersonas() {
 
   cards.replaceChildren(
     ...people.map((p) => {
-      const card = document.createElement("button");
+      // An <article> holding one real <button>, rather than a button holding the
+      // whole card: the CTA has to be the focusable thing, and a button inside a
+      // button is invalid. The click listener sits on the article, so a mouse can
+      // still hit anywhere and the CTA's click simply bubbles into it.
+      const card = document.createElement("article");
       card.className = "card";
       card.innerHTML = `
-        <h2></h2>
-        <p class="role"></p>
-        <p class="desc"></p>`;
+        <div class="card-top">
+          <span class="avatar" aria-hidden="true"></span>
+          <div class="card-id">
+            <h2></h2>
+            <p class="card-sub"></p>
+          </div>
+        </div>
+        <p class="desc"></p>
+        <ul class="card-chips"></ul>
+        <button class="cta" type="button"></button>`;
+
       card.querySelector("h2").textContent = p.name;
-      card.querySelector(".role").textContent = `${p.occupation}  ${p.age} yrs`;
+      card.querySelector(".avatar").textContent = initials(p.name);
+      card.querySelector(".card-sub").textContent = summarise(p);
       card.querySelector(".desc").textContent = p.description ?? "";
+      card.querySelector(".card-chips").replaceChildren(...chips(p));
+      card.querySelector(".cta").textContent = assessing
+        ? "Start interview →"
+        : "Start conversation →";
+
       card.addEventListener("click", () => openChat(p));
       return card;
     }),
   );
+}
+
+// Initials, for the monogram. Not a portrait and not an emoji face: the card may
+// only show what the seed file authored, and nothing authored says what anyone
+// looks like.
+function initials(name) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join("");
+}
+
+// "Cartographer, retired" → the trade first, then whatever qualifies it. Age and
+// trade both come from Identity; nothing here is inferred from her memories.
+const trade = (p) => p.occupation.split(",")[0].trim();
+
+const summarise = (p) => `${p.age} · ${trade(p)}`;
+
+function chips(p) {
+  const qualifiers = p.occupation
+    .split(",")
+    .slice(1)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1));
+
+  return [`${p.age} years`, trade(p), ...qualifiers].map((text) => {
+    const chip = document.createElement("li");
+    chip.className = "card-chip";
+    chip.textContent = text;
+    return chip;
+  });
 }
 
 // ---------------------------------------------------------------- chat

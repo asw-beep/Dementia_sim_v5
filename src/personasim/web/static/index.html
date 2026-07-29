@@ -10,11 +10,44 @@
     <!-- The gallery. One persona today; the layout assumes there will be more. -->
     <main id="gallery" class="view">
       <header class="gallery-head">
-        <h1>Persona</h1>
-        <p id="assess-note" class="assess-note hidden">
-          Blind assessment: CDR severity is drawn at random. The patient may be perfectly
-          healthy. Interview, rate, commit and check.
-        </p>
+        <div class="hero">
+          <div class="hero-text">
+            <h1>Persona</h1>
+            <p class="hero-sub">Choose a patient to begin.</p>
+            <!-- Two sentences, swapped by mode in app.js: assessment mode is a test
+                 and says so; plain mode is a conversation and must not imply a score
+                 nobody is keeping. -->
+            <p id="hero-line" class="hero-line"></p>
+            <p id="hero-quiet" class="hero-quiet"></p>
+          </div>
+
+          <!-- Contour lines: elevation rings closing on a single point. It is a map
+               and it is a mind, which is the whole product in one mark. Inline,
+               monochrome, decorative — the page reads identically without it. -->
+          <svg class="hero-mark" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" stroke-linejoin="round">
+              <path stroke-width="1.5"
+                d="M63 7c27-2 48 17 50 41 2 25-9 46-31 54-23 9-48 2-60-17C10 66 15 40 32 23 41 13 52 8 63 7Z" />
+              <path stroke-width="1.4" opacity=".8"
+                d="M64 24c18-1 32 12 34 28 2 17-6 32-21 38-16 6-34 1-42-13-8-13-6-31 5-42 7-7 15-11 24-11Z" />
+              <path stroke-width="1.3" opacity=".6"
+                d="M64 41c11 0 21 8 22 19 1 10-5 20-15 23-10 3-21-2-25-11-4-9-1-20 7-26 3-3 7-5 11-5Z" />
+              <path stroke-width="1.2" opacity=".45"
+                d="M64 58c6 1 10 6 9 12-1 6-7 10-13 8-6-2-9-8-7-14 1-4 5-6 11-6Z" />
+            </g>
+          </svg>
+        </div>
+
+        <div id="assess-note" class="assess-note hidden">
+          <span class="assess-icon" aria-hidden="true">i</span>
+          <div class="assess-copy">
+            <p class="assess-title">Blind assessment</p>
+            <p class="assess-body">
+              CDR severity is drawn at random and hidden — this patient may be perfectly
+              healthy. Interview naturally, then commit a rating to see how you read it.
+            </p>
+          </div>
+        </div>
       </header>
       <div id="cards" class="cards"></div>
 
