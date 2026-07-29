@@ -1,0 +1,95 @@
+# CDR 3 — severe dementia. Clinical ground truth:
+# docs/disease_profiles/CDR3.md; design: docs/design/sprint4_cdr3.md. It is the
+# step up from cdr2.yaml, and the numbers here are set *relative to that file*:
+# the same mechanisms, turned up until only fragments remain — recent memory is
+# essentially absent, orientation reaches no further than her own person, and
+# speech has grown simple. The one-line test for CDR 3 is the mirror of the ones
+# before it — a caregiver should conclude *severe* dementia within a few
+# exchanges, while still meeting, unmistakably, the same woman.
+#
+# Only the domains that already have a mechanism are expressible here. The severe
+# clinical picture — no independent community function, little function at home,
+# personal care requiring much help — lives in CDR3.md; a parameter nothing reads
+# would be a lie in a config file, so those domains stay absent, not zeroed.
+#
+# These values are authored ahead of the Sprint 2D drive and are provisional:
+# like every profile before them, they are meant to be corrected against a real
+# clinical drive, not trusted on paper. The structure is right; the exact
+# thresholds are a first estimate.
+
+name: cdr3
+label: "CDR 3 — severe dementia"
+
+recall:
+  # Recent memory loss reaches back further still — two years — though what this
+  # gates is unchanged: never her authored life at any age, only what she acquired
+  # in conversation and the everyday details she improvised.
+  recent_window_days: 730
+
+  # Reach = encoding + cue_weight × cue, exactly as before. At CDR 3 the ladder
+  # rises past the ceiling of what encoding can reach:
+  #
+  #   reach < withhold_below → does not come to mind
+  #   reach < gist_below     → the shape of it, without the particulars
+  #   otherwise              → recalled, but hedged — never crisp
+  #
+  # `withhold_below` (1.05) sits *above* what encoding alone can produce (< 1.0),
+  # so an uncued or weakly-cued recent memory is always withheld — only a squarely
+  # aimed question on a well-laid-down memory (encoding ~0.90 + cue_weight × 1.0)
+  # climbs into gist, and `gist_below` (1.50) is above the reach ceiling too, so
+  # nothing recent is ever crisp. That is "only fragments remain": the common case
+  # is a blank, the best case is a fragment without its particulars. `cue_weight`
+  # falls to 0.15 — cueing is not dead (a wall of blanks would make the caregiver's
+  # best tool inert, and the clinic asks for *inconsistent* fragments), but it
+  # rescues only the occasional gist, never the detail.
+  withhold_below: 1.05
+  gist_below: 1.50
+  cue_weight: 0.15
+
+orientation:
+  # Time is already "mistaken" from CDR 1 and stays there — the weekday and date are
+  # withheld and she does not tidily self-correct. Place goes from CDR 2's "hazy" to
+  # "lost": where she is, the part of the day, the month and the season are withheld
+  # from the frame even in familiar surroundings — orientation to her own person
+  # only, the CDR 3 clinical phrase. And "person" degrades for the first time: who
+  # she is speaking with does not reliably come to her ("unfamiliar"). Nothing false
+  # is injected on any axis and orientation is stored nowhere, so no memory is
+  # touched; failed recognition is honest unfamiliarity, never a manufactured
+  # identity (see impairment/voice.py).
+  day_and_date: mistaken
+  place: lost
+  person: unfamiliar
+
+speech:
+  # Word-finding is now a constant feature of effortful speech. Raised from 0.45 to
+  # ~0.65 — it stumbles on most turns, still one word per turn so it never tips into
+  # the robotic litany the injector guards against.
+  word_finding_probability: 0.65
+  # She can hold only one part of a multi-part question — the floor. (Zero would mean
+  # the trim is *off*, not that she holds nothing; one part is the least she can be
+  # left with.)
+  long_question_clauses: 1
+  # …and at CDR 3 a multi-part question almost always overruns her. Raised from 0.85
+  # to 0.95: only rarely does she keep more than the last part.
+  long_question_probability: 0.95
+  # Speech has grown simple — short sentences, plain words, one thought at a time.
+  # This is a register the prompt seam can carry (unlike a deficit); see
+  # impairment/voice.py SIMPLE_SPEECH and the design doc for why.
+  simplified_language: true
+
+# Insight is gone, as it has been since CDR 2 — she does not describe herself as
+# forgetful, does not apologise for her memory as a pattern, and is not distressed
+# by gaps she can no longer see. Left false, unchanged from cdr2.yaml.
+insight: false
+
+# The working-memory window collapses to its floor. crisp_turns drops from 1 to 0 —
+# even the exchange just completed fades, so she can lose the thread of a
+# conversation *while it is still the thread* — and the fade span shortens to 2, so
+# the whole window is gone within a couple of turns. The delayed-recall probe now
+# fails completely and cue-proof: by the time the probe arrives the words are not
+# faded but outside the window entirely, and a cue has nothing to catch on. This is
+# the "total, cue-proof collapse of even the current exchange" that cdr2.yaml named
+# as CDR 3's.
+hold:
+  crisp_turns: 0
+  fade_turns: 2

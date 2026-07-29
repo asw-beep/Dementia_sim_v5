@@ -1,25 +1,39 @@
 # Roadmap
 
-Phase 1 — Healthy Human Persona. Built waterfall: each stage is specified, built,
-and verified against its exit criteria before the next begins.
+**Status: Phases 1 and 2 complete, end to end — all four CDR sprints declared
+complete by the owner, and every defect the five-profile comparison drive surfaced
+is fixed and pinned. Phase 3 (assessment mode) is current; Sprint 3A is scoped in
+`docs/design/phase3_assessment.md`.**
 
-**Status: Stage 9 complete. Phase 1 is done, end to end.**
+Phase 1 was built waterfall, because a healthy persona is one thing and either
+works or does not. Phase 2 is built in **sprints, one CDR stage each**, because
+"simulate Alzheimer's" is not a deliverable and cannot be tested. Four patients,
+each independently shippable:
 
-`persona seed` · `persona chat` · `persona trace`. The consistency suite passes: the
-same question asked several ways reaches the same memory, a fact disclosed in one
-session is recalled in the next, and nothing the model invents is ever remembered.
+| Phase | Sprint | Scope | Status |
+| ----- | ------ | ----- | ------ |
+| 1 | — | Healthy human persona | ✅ Complete |
+| 2 | 2A | CDR 0.5 — very mild impairment | ✅ Complete |
+| 2 | 2B | CDR 1 — mild | ✅ Complete |
+| 2 | 2C | CDR 2 — moderate | ✅ Complete |
+| 2 | 2D | CDR 3 — severe | ✅ Complete |
+| 3 | 3A | **Assessment: the evidence ledger** (`persona assess`) | 🔶 **Current** (built; drive clean, owner sign-off pending) |
+| 3 | 3B | Assessment: the blind loop — draw, worksheet, commit, reveal | ⬜ |
+| 3 | 3C | Assessment: the coach — gap diff, coverage, review mode, history | ⬜ |
+| 4 | — | Random patient generation (persona + profile, diagnosis hidden) | ⬜ |
+| 5 | — | Longitudinal progression | ⬜ |
 
-The persona speaks, remembers what it is told, and cannot remember what it makes
-up. The loop is closed: a fact disclosed in one session is recalled in the next,
-and a hallucinated one is not recorded at all — not because it is filtered, but
-because the model's output is never offered to memory formation.
+**The scoring system is the consumer of the simulator, not the simulator.** It is
+Phase 3, and it is deliberately last of the near-term work: a simulator built
+alongside its own scorer gets tuned until the scorer is happy, which proves
+nothing. Build the patients first, validate each by hand, and only then score them.
 
-Every stage below that is marked complete passed the same gate:
-`ruff check` · `ruff format --check` · `mypy src` (strict) · `pytest`.
+Every completed item passed the same gate: `ruff check` · `ruff format --check` ·
+`mypy src` (strict) · `pytest`.
 
 ---
 
-## Progress
+## Phase 1 progress (complete)
 
 | Stage | Scope | Status | Tests |
 | ----- | ----- | ------ | ----- |
@@ -35,11 +49,673 @@ Every stage below that is marked complete passed the same gate:
 | 8 | CLI, consistency tests, documentation | ✅ Complete | 360 |
 | 9 | Web frontend with memory-trace panel | ✅ Complete | 388 |
 
-Test counts are cumulative for the whole suite at the close of that stage.
+Test counts are cumulative for the whole suite at the close of that stage. The
+suite stands at **459 passing** at `phase-1-complete`, the tag Phase 2 branches
+from and the point to return to if Phase 2 goes wrong.
 
 ---
 
-## Stages
+## Phase 2 — cognitive impairment, one CDR stage at a time
+
+### The shape of it
+
+**Severity is data, not code.** No symptom is hardcoded and none is branched on by
+name. A disease profile is a YAML file in `data/profiles/` holding parameters:
+
+```
+healthy.yaml     retrieval: 1.00   orientation: 1.00   language: 1.00   working_memory: 1.00
+cdr05.yaml       retrieval: 0.90   orientation: 0.97   language: 0.95   working_memory: 0.90
+cdr1.yaml        retrieval: 0.70   orientation: 0.90   language: 0.85   working_memory: 0.70
+cdr2.yaml        …
+```
+
+Those numbers are placeholders and will be tuned by driving the persona; the
+*point* is the shape. A random patient (Phase 4) then becomes nothing more than
+**load persona + load profile**, and "CDR 2" never becomes a scattering of
+`if stage == 2` through the retrieval engine.
+
+**Phase 1 is not touched.** The impairment layer wraps `retrieval/`, working memory
+and the prompt seam. No core change, no schema migration, no seed edit — that
+promise was made in Stage 2 (all three memory types in one table, discriminated by
+column) and Stage 5 (the engine lives in top-level `retrieval/` precisely because
+it is the seam Phase 2 wraps). Phase 2 is where those decisions get cashed in.
+
+**Nothing that made Phase 1 correct is relaxed to make Phase 2 expressive.**
+Formation still never sees the model's output, so an impaired persona still cannot
+remember something she invented. Impairment *withholds and hedges* memories; it
+never manufactures them.
+
+**The trace explains every failure.** A memory not recalled is not an absence in
+the log — the trace records that it was found, that the profile suppressed it, and
+why. An unexplained failure is indistinguishable from a bug, and Phase 3's report
+is built directly on this.
+
+### Sprint 2A — CDR 0.5 ✅ (declared complete by the owner)
+
+> The mechanics below all shipped and `make check` is green. The adversarial drive
+> and a second clinical review were the last open items (see "The drive is not
+> finished" under Open issues); the owner has declared the sprint complete and
+> Sprint 2B is now current. The profile numbers in `cdr05.yaml` remain data and may
+> still be tuned if a later drive warrants it.
+
+
+Clinical spec: `docs/disease_profiles/CDR05.md` (ground truth). Design:
+`docs/design/sprint1_cdr05.md`. Built: `impairment/` (profile, recall gate, engine
+wrapper, voice), `data/profiles/{healthy,cdr05}.yaml`, `persona chat --profile`,
+withheld memories on the trace and in `persona trace`. All 459 Phase 1 tests pass
+unmodified; 30 new tests pin the gate, the landmine (a withheld memory never
+triggers improvisation), and the formation boundary. **Not done until the
+adversarial drive against a real model is clean and the profile numbers are tuned.**
+
+**Do not build "mild Alzheimer's". Build one patient who consistently behaves like
+CDR 0.5.** That is a far smaller thing, and it is the whole sprint.
+
+Six behaviours, and nothing else:
+
+1. **Recent episodic recall is slightly impaired.** "What did we talk about
+   earlier?" — sometimes recalled, sometimes missing a detail. Never an impossible
+   answer.
+2. **Older memories remain excellent.** The wedding is near-perfect.
+3. **Orientation mostly intact.** Knows the date approximately, the place, the
+   caregiver, her home. Occasionally self-corrects: *"Tuesday? … Wednesday? No —
+   Tuesday."* Not *"where am I?"* — that belongs to a later sprint.
+4. **Mild word-finding difficulty.** Occasional *"that thing… the… the kettle"*.
+   Not every sentence.
+5. **Slight repetition.** Asked about the dog twice, she may answer similarly
+   again — similarly, not verbatim.
+6. **Insight is preserved.** She knows she is becoming forgetful, that she loses
+   words, that her daughter has noticed. This is a clinical feature of CDR 0.5, not
+   a leak. **Do not remove it.**
+
+**The one success criterion:** can a caregiver tell this persona apart from the
+healthy one over 15–20 minutes, while still recognising her as the same person? If
+yes, Sprint 2A ships. Finer clinical detail comes after that is true, not before.
+
+**Acceptance criteria** — every box, or it does not ship:
+
+- ✓ Long-term identity preserved
+- ✓ Recent memory fails occasionally
+- ✓ Remote memory preserved
+- ✓ Orientation mostly correct
+- ✓ Mild lexical retrieval difficulty
+- ✓ No impossible confabulations
+- ✓ The retrieval trace explains every failure
+- ✓ The healthy architecture is untouched (and `healthy.yaml` still behaves exactly
+  as Phase 1 did — the regression suite proves it)
+
+### Sprint 2B — CDR 1 ✅ (declared complete by the owner)
+
+> Two adversarial drives against qwen3:14b (16 probes, then a focused re-drive) are
+> clean, and both open issues below are resolved. The owner has declared the sprint
+> complete and Sprint 2C is next. `cdr1.yaml` remains data and may still be tuned.
+
+Clinical spec: `docs/disease_profiles/CDR1.md` (ground truth). Design:
+`docs/design/sprint2_cdr1.md`. Built: `data/profiles/cdr1.yaml`, a third
+time-orientation level (`mistaken`) in `impairment/profile.py` and
+`impairment/voice.py`, and — after the drive — one new mechanism,
+`impairment/comprehension.py` (the long-question overrun, below). All Phase 1 and 2A
+tests pass unmodified; new tests pin CDR 1 as a strict rung past CDR 0.5, the
+`mistaken` clock, and the comprehension trim.
+
+Same architecture, different profile. Working memory weaker; orientation
+occasionally wrong; conversation continuity sometimes lost; retrieval more often
+blocked. **Nothing else changes** — and almost none of it is code: three of those
+four are `cdr1.yaml` numbers turned up a rung (recall window 90 → 180 days,
+thresholds and word-finding raised, cueing weaker, working-memory fade sharper).
+This is the first time the "severity is data, not code" bet is cashed.
+
+**The one new mechanism — orientation `mistaken`.** CDR 0.5's `uncertain` still
+handed her the true weekday, so she wavered and *landed on the right day*. CDR 1
+withholds the weekday and date from the clock she is given: she offers the day she
+believes it is — sometimes wrong — or admits she has lost track, and does not tidily
+self-correct to an answer she no longer has. This withholds a fact she has lost hold
+of; it never injects a false one, and orientation is stored nowhere, so no memory is
+touched. A wrong weekday is the defining CDR symptom, not the closed-cast
+confabulation the layer forbids.
+
+**Deliberately not built.** `CDR1.md` spans six clinical domains; four of them —
+judgment and problem solving, community affairs, home and hobbies, personal care —
+have no mechanism, and get none here: a profile field with no consumer is a lie in a
+config file, so those domains stay out of `cdr1.yaml` until a sprint gives each one a
+consumer, never a hardcoded branch. Repetition stays emergent from the fade, as at
+CDR 0.5, turned up by the numbers rather than by a new "repeat" instruction.
+
+**The one success criterion** (the mirror of 2A's): can a caregiver place her at
+*mild dementia* over a short interview, while still recognising the same woman? That
+is judged on a transcript, and the drive is where `cdr1.yaml` gets tuned. **Judged
+met** on the second structured drive (16 probes): day-of-week lost, breakfast came
+back as gist only, one visible word-finding stumble, insight voiced unforced, and
+the multi-part question overran — while the wedding, her mother and her brother were
+recalled perfectly and she remained, unmistakably, the same woman. Closed cast and
+caregiver scope held throughout; nothing was confabulated.
+
+**Observed in the first structured drive (real model, qwen3:14b, 14 probes).** Most
+of the profile landed on the first pass, which is the "severity is data" bet paying
+off — the numbers moved and the behaviour moved with them, no new code:
+
+- *Time orientation (`mistaken`)* — exactly right. The day is lost ("I'd need to
+  check"), the date hedged while month and year stay confident and correct. No tidy
+  self-correction, no false fact injected.
+- *Recent recall* — clearly impaired: breakfast came back as gist ("the rest escapes
+  me") and, probed again seven turns later, drew a blank. Cue-dependent and
+  explained in the trace.
+- *Delayed recall* — **1 of 3**, the clinical signature of CDR 1.
+- *Remote memory* — excellent and in character. *Insight* — preserved and unforced.
+
+The memory and orientation **numbers were left unchanged**: the transcript
+validated them rather than faulting them. Tuning is not "change something"; here it
+was "confirm these are right, and fix what the drive actually broke."
+
+**Open issues from the drive** (stated, not hidden — the stage gate forbids a silent
+"known limitation"):
+
+1. **Word-finding — RESOLVED (post-generation injection).** The prompt seam could
+   not deliver it: the fragment produced *zero* visible groping across the drive, and
+   strengthening it to force a stumble backfired into a robotic litany — *"I know I
+   had a napkin, but I cannot say what it was made of…"* for every noun, which reads
+   as aphasia, not CDR 1. The fix is the mechanism this issue predicted: a light
+   post-generation pass (`impairment/disfluency.py`) that injects a single groping
+   hesitation into the reply the model already wrote — *"the teapot beside the — it's
+   on the tip of my tongue — window"*. It fires at `word_finding_probability`, hashed
+   per (session, turn) so a session replays identically; it stumbles on exactly one
+   plain lowercase noun (never a name, never the opening word, so "Maya" and "Vermont"
+   are safe); and it adds a **disfluency, not a fact** — formation never sees the
+   reply, so the closed cast is untouched. The unreliable prompt fragment is gone; the
+   profile field now feeds the injector. This was the last thing standing between 2B
+   and shippable.
+2. **Delayed-recall intrusion — RESOLVED (lightweight gap guard).** With the list
+   faded, the model filled the gaps from nearby transcript — "apple, slice, lemon",
+   the last two lifted from the breakfast answer. The fix is a single prompt fragment
+   (`voice.FADED_GAP`), added only on a turn that actually faded something: it tells
+   her a slipped piece is gone, to give only what she still holds, and never to borrow
+   a nearby word to fill the hole. It withholds; it never invents — the same rule as
+   the fade itself. A first wording named the '…' glyph and the model echoed it
+   literally ("… lemon … bread …"); the shipped wording names no glyph and, re-driven,
+   produced the clean CDR-1 miss: *"Table. Penny. … I cannot recall the third."* — 2
+   of 3, the last declined, zero intrusion.
+3. **Multi-part comprehension — RESOLVED (input trim), found in the second drive.**
+   Handed a deliberately overloading five-part question, she answered *every* part
+   flawlessly — the exact deficit the profile says she can no longer manage. The cause
+   was the same as word-finding #1: `long_question` was a soft prompt fragment
+   (*"you did not keep all of it, answer the part you are surest of"*), and I confirmed
+   it *fired* that turn — qwen3:14b simply read all five parts and answered them. A
+   prompt cannot deliver a comprehension deficit against a capable model. The fix is
+   the input-side twin of `disfluency`: `impairment/comprehension.py` trims the
+   question to its last `long_question_clauses` parts **before the model sees it**, so
+   she cannot answer the earlier parts — there is nothing there to answer, the same
+   structural guarantee as formation never seeing the reply. Retrieval and formation
+   still read the *full* message, so a fact disclosed in a dropped clause is remembered
+   though not answered; the closed cast is untouched. It fires at
+   `long_question_probability`, hashed per (session, turn) so a session replays
+   identically, and the trace records *"a 5-part question overran; kept only the last
+   2"*. Re-driven: a five-part and a four-part question each overran to their last two
+   parts, a second four-part one *coped* (usually she does — this is CDR 1, not CDR 2),
+   and a short question was untouched. The soft fragment is gone from `voice.py`.
+
+   **Delayed recall (3/3) — accepted as-is by the owner.** The second drive's
+   three-word probe came back 3/3 rather than the ~1/3 the profile intends. The owner's
+   call is to leave the `hold` numbers as they are; it is recorded here, not silently
+   left. If a later review wants the sharper miss, it is a `hold` (`crisp_turns`/
+   `fade_turns`) tuning, no new code.
+
+**Resolved from the drive:** she called the caregiver *"my caregiver"*, which the
+healthy-persona *Who is in the room* rule appeared to forbid. Decision (owner): from
+Phase 2 every persona is a patient, so acknowledging a caregiver is correct, not a
+leak. The rule is now universalised — the prompt wording is unchanged, but its job is
+"never let her speak *as* the caregiver or hand over her own home", not "never tell
+her she is looked after". See `CLAUDE.md` *Who is in the room* and `render_speaker`.
+
+### Sprint 2C — CDR 2 ✅ (declared complete by the owner)
+
+> Two structured drives against qwen3:14b are clean and the one issue they raised
+> (the tag-aware trim, below) is resolved and pinned. The owner has declared the
+> sprint complete and Sprint 2D is current. `cdr2.yaml` remains data and may still
+> be tuned.
+
+ADLs begin to degrade — **not because a prompt says so, but because cognition now
+fails often enough that it shows.** Repeated questions, lost topics, uncertainty,
+difficulty following an explanation. These are consequences of the profile, never
+instructions in it.
+
+Clinical spec: `docs/disease_profiles/CDR2.md` (ground truth). Design:
+`docs/design/sprint3_cdr2.md`. Built: `data/profiles/cdr2.yaml`, and one new
+mechanism — a **place axis** on `Orientation` (`PlaceSense = confident | hazy`) with
+its branch in `impairment/voice.py`'s clock. All Phase 1, 2A and 2B tests pass
+unmodified; new tests pin CDR 2 as a strict rung past CDR 1, the healthy `place`
+default, the hazy-place frame, and the tag-aware trim below.
+
+Same architecture, different profile — the third time the "severity is data" bet
+pays. Everything but the place axis is a number turned up a rung: recall window
+180→365d and thresholds raised (no recent memory ever crisp — `gist_below` sits above
+the reach ceiling), the working-memory fade sharper (`fade_turns` 5→3, delayed recall
+≈0/3), word-finding 0.30→0.45, the long-question limit 2→1 and its probability
+0.65→0.85, and `insight` **flipped off** — the loss of insight `cdr1.yaml` already
+named as CDR 2's.
+
+**The one new mechanism — orientation to place (`hazy`).** CDR 1 kept place and
+person confident and degraded only time; `Orientation`'s own docstring reserved place
+for "the sprint that degrades them". `hazy` withholds *where she is* and *the time of
+day* from the clock frame (as `mistaken` withholds the weekday), so she is oriented in
+familiar surroundings but loses her bearings when they are unfamiliar or changed, and
+morning runs into afternoon. It withholds a confidence she has lost; it never injects
+a false place, and orientation is stored nowhere. A constant "where am I?" is CDR 3.
+
+**Two structured drives against qwen3:14b are clean.** The place axis landed on the
+first pass — *"I would say it is morning, but I cannot be certain… the hour slips"* at
+5pm, *"I believe I am in my home. I cannot be certain without looking around"* — and
+recall collapsed as intended (breakfast withheld or gist, delayed recall 0/3), with
+frequent word-finding, an intact wedding, no confabulation, and no spontaneous insight.
+
+**Open issue from the drive — RESOLVED (tag-aware trim).** With `long_question_clauses`
+at 1, the comprehension trim kept the *last raw clause*, which is often a trailing
+courtesy: *"Do you have a dog, by the way?"* trimmed to "by the way", and she answered
+a non-sequitur about not knowing the day — reading as CDR 3 fluctuation, not CDR 2. The
+fix teaches `impairment/comprehension.py` a curated set of discourse tags (like
+`disfluency._SKIP`): a trailing tag no longer counts toward the part total (so a simple
+question with a courtesy tacked on is not treated as multi-part) and is dropped rather
+than kept as the sole surviving clause. Re-driven, the same probes came back clean —
+*"Yes, I have a dog. His name is Compass"* — while genuine multi-part questions still
+overrun to their last real part. Pinned by two regression tests.
+
+**Deliberately not built** (same discipline as 2B): community affairs, home and
+hobbies, personal care, and the planning/judgment side of executive function have no
+conversational consumer and stay out of `cdr2.yaml`; executive function is expressed
+only where it has one — the long-question overrun. Repetition stays emergent from the
+sharper fade. "Confident about a wrong detail" and "confuse recent events with older
+ones" are admitted **only** as orientation (a wrong day or place) and as loss of the
+*when* — never as invented biography or an injected false timeline; the closed cast is
+untouched. See `docs/design/sprint3_cdr2.md`.
+
+**Found after sign-off, in the five-profile comparison drive — RESOLVED (anaphora-aware
+trim).** Mid-session, CDR 2 denied her hobbies and her childhood home — remote,
+authored memories CDR 1 recalled richly one rung earlier, and the trace showed them
+*retrieved whole and in the prompt* while she denied them. The research isolated two
+causes, the second decisive. First, `voice.FADED_GAP` quoted a sample phrase — *'that
+part has gone from me'* — and the model made it a catchphrase (seed authoring rule 2,
+rediscovered at the impairment seam) and generalised the unscoped note into denying
+long-term memory; it is reworded to name its scope (this conversation only) and to
+state that the memory block above it is exempt. Second, and the actual denial: with
+`long_question_clauses` at 1, *"describe the home where you grew up? What do you
+remember most about **it**?"* trimmed to an **anaphoric tail** — a question about an
+orphaned "it", whose referent lived in the dropped clause. Retrieval read the full
+message (so Rutland sat in the memory block) but the model never heard "home", and
+resolved "it" against the transcript (her maps) or denied. The trim's premise — the
+dropped clauses were scene-setting — is false exactly then, so
+`impairment/comprehension.py` now keeps one more clause when the surviving tail leans
+on a bare anaphor: a two-part anaphoric question is heard whole, a three-part one
+still loses its head, and the deficit survives where it is honest. Reproduced 3/3
+denied before the fix, 0/3 after, against qwen3:14b; pinned by four regression tests.
+
+### Sprint 2D — CDR 3 ✅ (declared complete by the owner)
+
+> The five-profile comparison drive (15 probes × 5 profiles, qwen3:14b) stood in for
+> the adversarial drive, and every defect it surfaced is fixed, verified live, and
+> pinned: the place recital (the place gate, below), the CDR 2 remote-memory denial
+> (the anaphora-aware trim, recorded under 2C), and the healthy Q15 slip (shown to be
+> a non-reproducible one-off, no change made). The owner has declared the sprint —
+> and with it Phase 2 — complete. `cdr3.yaml` remains data and may still be tuned.
+
+Severe. Retrieval largely collapses, language simplifies, orientation is poor,
+recognition fails. Again: same architecture, different profile.
+
+Clinical spec: `docs/disease_profiles/CDR3.md` (ground truth). Design:
+`docs/design/sprint4_cdr3.md`. Built: `data/profiles/cdr3.yaml`, one new place rung
+(`lost`), one new orientation axis (`person: unfamiliar`), one new speech field
+(`simplified_language`, a per-turn register fragment), and — after the drive — one
+new mechanism, `impairment/orientation.py` (the place gate, below). All Phase 1, 2A,
+2B and 2C tests pass unmodified; new tests pin CDR 3 as a strict rung past CDR 2, the
+person-only frame, the recognition guard, the simplified-speech note, the crisp-zero
+fade, and the place gate (hazy hedges the residence, lost withholds it and its
+place-naming expansion, the childhood hometown is never touched).
+
+The fourth time the "severity is data" bet pays: two of the four collapses the
+roadmap names are pure numbers, and the other two are one rung and one axis both
+reserved by earlier docstrings. Everything on the recall and speech side is a knob
+turned to its floor: recall window 365→730d, `withhold_below` **above the encoding
+ceiling** (1.05 — an uncued recent memory is now always withheld; only fragments
+remain), `cue_weight` 0.30→0.15, `fade_turns` 3→2, word-finding 0.45→0.65, the
+long-question overrun 0.85→0.95, and `hold.crisp_turns` **1→0** — even the exchange
+just completed now fades, the "total, cue-proof collapse of even the current
+exchange" that `cdr2.yaml` named as CDR 3's.
+
+**The new place rung — `place: lost`.** CDR 2's `hazy` withheld the time of day and
+the easy confidence about place while telling her familiar surroundings still held
+her. `lost` withdraws that anchor and the month, year and season with it: the frame
+asserts only her own person and nothing about when or where — orientation to person
+only, the clinical phrase. Same discipline as `mistaken` and `hazy`: withheld, never
+falsified, stored nowhere. `sprint3_cdr2.md` promised this as "a third rung rather
+than a new field", and that is exactly what it is.
+
+**The new axis — `person: unfamiliar`.** The last orientation axis, reserved by
+`Orientation`'s docstring for the sprint that degrades it. The frame stops asserting
+that she knows who she is speaking with. Two hard lines keep it inside *Who is in the
+room*: the **I/you split is not softened** — the fragment grounds the pronouns inside
+itself, so whoever the speaker is, their "I" is them and "you" is her, and she never
+crosses to their side; and it is **unfamiliarity, never misidentification** — she says
+an honest "I don't know who you are" and is expressly forbidden to decide a stranger
+is her daughter, which would manufacture a false fact about the closed cast.
+`memory.formation.CAREGIVER` is untouched — every disclosure still lands on the same
+fixed subject, whoever she believes is speaking.
+
+**Decision — misidentification, CLOSED (accepted by the owner at sign-off).**
+`CDR3.md` lists "misidentify… who is present" and "confuse people" as in-scope; a
+confident wrong name ("you're my daughter") would manufacture a false fact about the
+closed cast, which no severity may do. So recognition failure is honoured as *honest
+non-recognition* — an "I don't know who you are", a familiar face placed
+inconsistently — not a decided wrong identity. This is the one clinical feature the
+architecture deliberately cannot fully express; it is stated in `CDR3.md`'s
+implementation note and accepted as-is. If a later review wants more, the bounded,
+non-confabulatory form (*"are you… one of the nurses?"* offered as a question, never
+asserted) is the shape to argue for — in `docs/future.md`, with a transcript behind
+it. **Emotional response is preserved, not suppressed:** the
+spec keeps "show fear, seek comfort, appear distressed", so the orientation and
+recognition fragments permit momentary, in-character unease (an earlier draft wrongly
+told her the gaps did not trouble her). A *sustained* distress/agitation engine stays
+out — the spec's own "delirium-like fluctuation as the main feature" to avoid.
+
+**The one prompt fragment — `simplified_language`.** Short sentences, plain words, one
+thought at a time. This project's rule is that a prompt *cannot* deliver a **deficit**
+(word-finding and the long-question overrun had to move to mechanisms). But register
+is not a deficit — it is a style the model follows willingly, the same seam that
+already carries her speech manner from the seed — so it is tried at the prompt, with
+the two standing guards (describe the manner and quote nothing; forbid the caricature
+in both directions — no babbling, no decorated fluency). If the drive shows the model
+declines it the way it declined groping, the fallback is a mechanical post-generation
+pass — but one the transcript must *earn*, not one built on suspicion.
+
+**Deliberately not built** (same discipline as every sprint): community affairs, home
+and hobbies and personal care are at their clinical floor and still have no
+conversational consumer, so they stay in `CDR3.md` and out of `cdr3.yaml`.
+Misidentification, hallucination, delusion, agitation, wandering and sundowning are
+either false-fact manufacture or deferred engines — recognition fails *honestly* here
+and the rest is `docs/future.md` or never. Repetition stays emergent (at a two-turn
+window fading from the first word it should be near-constant); a language-collapse
+engine is not built unless the fragment proves too weak. See
+`docs/design/sprint4_cdr3.md`.
+
+**Open issue from the drive — RESOLVED (the place gate).** The first CDR 3 drive
+showed the `lost` clock frame was not enough on its own: asked "where are you right
+now?", the model retrieved her authored home address (ageless, so the recall gate
+never touches it) and recited "a third-floor walk-up in Jamaica Plain" as her present
+location — the address standing in for an orientation she has lost. A prompt cannot
+argue the model out of a memory it has been handed (the `disfluency`/`comprehension`
+lesson again), so the deficit moved to where the memory lives: `impairment/
+orientation.py` degrades the *self-location* memory in the trace, exactly as the
+recall gate degrades a recent one — `hazy` hedges it ("I believe I'm home"), `lost`
+withholds it and any place-naming expansion (the dated "I moved to Jamaica Plain" that
+retrieval pulls in to explain it). It touches only the *current* residence, never the
+childhood hometown, so remote memory is preserved. Re-driven: CDR 3 now answers
+"where are you?" with "I do not know", while "where did you grow up?" still surfaces
+its Rutland fragment; CDR 2 hedges ("… as far as I recall"). Pinned by six tests.
+
+**Not done until the adversarial drive against a real model is clean.** The mechanics
+are green, but the sprint is judged — as 2A, 2B and 2C were — on a hand-drive against
+qwen3:14b: delayed recall 0/3 with a cue that rescues nothing, the topic lost within
+an exchange, day/month/season/place all gone including at home, at least one honest
+failure to place the caregiver with no invented identity, speech visibly simpler than
+CDR 2's, a genuine remote fragment surfacing without elaboration, constant repetition,
+no insight — and, still and always, no confabulation. The numbers in `cdr3.yaml` are
+starting values and should be expected to move once the transcript says where.
+
+### Not in Phase 2 — do not build these
+
+Disease progression, emotional engine, hallucination engine, stochastic failure
+beyond the profile parameters, caregiver scoring, medication, sundowning,
+wandering, agitation. Ignore them. Each is either a later phase or `docs/future.md`.
+
+---
+
+## Phase 3 — assessment mode (current): caregiver training through blind interview
+
+Scope: `docs/design/phase3_assessment.md` (supersedes the first Phase 3 scope; same
+foundations, sharpened into a training loop). **The loop:** a hidden profile is
+drawn — *including healthy, so over-diagnosis is trained away* — the caregiver
+interviews and rates as they go on a worksheet, commits, and only then sees the
+actual stage with the evidence they used, missed, or never elicited. Modelled on the
+Washington University CDR training protocol (blind rating against gold-standard
+cases), upgraded in one way: the trainee conducts the interview rather than watching
+one, so *eliciting* evidence is trained alongside reading it.
+
+Three theses, each inherited from an earlier phase's discipline:
+
+- **The reveal is a replay of the trace, not a judgment by a model.** Every
+  mechanism already explains itself per turn in the session log; assessment
+  aggregates by rule. `assessment/` may not import the LLM — the same invariant, for
+  the same reason, as formation.
+- **The system never diagnoses.** The actual CDR is the drawn profile, known by
+  construction — never inferred from the transcript. A severity inferrer would be a
+  second scorer to tune the simulator against.
+- **Report only what a conversation can show.** Memory, orientation, and the
+  expressed sliver of judgment are evidenced (language as supporting observation);
+  community affairs, home and hobbies, and personal care are named as unobservable
+  in conversation, not padded — they are off the worksheet for the same reason.
+
+### Sprint 3A — the evidence ledger ✅ (declared complete by the owner)
+
+`persona assess <persona> [--session] [--list] [--profile]`: a deterministic
+per-domain report over one logged session — recall fates split remote vs recent,
+orientation withholdings, overruns, word-finding cadence, and **probe coverage**
+(which probe types the interview contains, and which are absent), each line naming
+its turn — with, given `--profile`, the profile's intended numbers beside the
+observed behaviour. CLI only; no prediction, no UI change, no new trace fields.
+
+Built: `assessment/` (vocabulary, probes, ledger, report — a pure reader), the CLI
+command, and two new invariants — `assessment/` may import neither the LLM nor
+storage (the CLI hands it turns, so the package cannot quietly grow a write path),
+and it joins the packages allowed to read `impairment` profiles. The note
+vocabulary is pinned from **both sides**: the emitters are invoked for real in the
+tests and their notes must parse, so a reworded note breaks loudly rather than
+silently orphaning the ledger. The probe classifier is validated against the
+fifteen-probe bank from the comparison drive. 37 new tests; `make check` green at
+580.
+
+The session log does not record which profile it ran under — that lands with 3B's
+assessments table — so `--profile` lets the operator state it until then.
+
+**Driven** against qwen3:14b: one 10-probe session per profile into a scratch
+database, `persona assess` over each. The healthy report says "Nothing impaired
+was observed" with full coverage and every remote memory intact; CDR 2 shows the
+dissociation at a glance (remote intact beside recent-withheld with its
+arithmetic, the fade accelerating 2→61 words across the session, place hedged,
+four overruns, word-finding); CDR 3 differs exactly where the profiles differ
+(residence *withheld* rather than hedged, the crisp-zero fade biting from turn 2,
+the higher thresholds printed). Every failure in each transcript is accounted for
+with its mechanism and its turn.
+
+### Sprint 3B — the blind loop ✅ (declared complete by the owner)
+
+The per-session hidden draw (uniform over all five profiles, weights held as data;
+genuinely random on purpose — the hash-not-roll invariant protects `impairment/`'s
+replay, and the draw's one job is to be unguessable). The five leaks sealed:
+`/api/profile`, the per-message trace (`Exchange.trace` — the answer key), the
+transcript download, the `run`/server log labels, and `SessionStore`'s
+per-server profile. The worksheet (three domains + language + global, `CDR*.md`
+anchor text beside it, optional probe guide), the commitment (end locks the
+transcript, submit locks the rating), the reveal (actual + rating + raw ledger), and
+an additive `assessments` table. Blindness is a UI contract, not a security
+boundary, and says so.
+
+Built: `SessionStore` takes a profile *pool* and draws with `secrets.choice` (not a
+hash — unpredictability is this one's job); `AssessmentRow`/`AssessmentRepository`
+hold the answer key and the committed worksheet; `POST /api/session/{id}/commit`
+ends the session, locks the rating, and returns actual + rating + ledger;
+`./run start assess` and `persona serve --assessment`. The worksheet carries a
+one-line anchor per domain per rating, condensed from `docs/disease_profiles/`, shown
+on hover as well as on selection so two adjacent stages can be compared before
+choosing. `make check` green at 598.
+
+**Driven** against a local model, three blind sessions, over the real HTTP API and
+the served UI: the draw stayed hidden (`/api/profile`, every message, the transcript
+download, the server log), commit revealed correctly, a second commit 409'd, and a
+plain profiled session kept its trace panel. The loop does what it is for — the
+first drive rated CDR 2 against an actual CDR 1, and the ledger showed exactly which
+turns were over-read.
+
+Three defects the drive found, all fixed and pinned:
+
+- **The probe classifier could not see "Where are we right now?"** — it knew "where
+  *you* are" but not the first-person plural the question is actually asked in, and
+  the same for "What did we talk about earlier?" (it held only the past-tense "we
+  talked about"). Both are phrasings the new interview guide *recommends*, so the app
+  told the trainee to ask something and then reported they never asked it. A coverage
+  line that says "never probed" when it was probed is worse than no line. Fixed in
+  `assessment/probes.py`, and the guide is now pinned against the classifier: every
+  quoted question in the served page must classify.
+- **The worksheet's domain names were written twice** — `Worksheet` on the server,
+  `DOMAINS` in `app.js` — with the reveal keyed by them. Drift would have rendered a
+  blank row against a rating that was recorded. Pinned from both sides.
+- **The orientation frame explained nothing to the trace** — see the amendment below.
+
+#### Phase 2 amendment — the orientation frame now says what it withheld
+
+Argued with a transcript, as the rule requires. At CDR 1 (`day_and_date: mistaken`)
+she was asked the day and answered *"I don't have a clear sense of the day. It's been
+some time since I kept track."* — the mechanism working exactly as specified. The
+ledger printed **"no disorientation observed"** directly above **"intended: time
+mistaken"**, contradicting itself on the page.
+
+The cause was structural, not a wrong rule: `render_now_impaired` degraded the prompt
+frame and returned only a string, so orientation left no note in `trace.reason`. Every
+other mechanism explains itself there — `retain_question` returns its overrun note
+and the loop appends it — but this one did not, so the ledger's only orientation
+evidence was `apply_place_gate` firing on an authored residence memory. **Lost
+weekdays were invisible to the reader by construction**, which is precisely the
+"unexplained failure indistinguishable from a bug" the trace exists to prevent, in
+the second most diagnostic domain there is.
+
+Fixed the way the pattern already went: `render_now_impaired` now returns
+`(frame, note)`, the loop appends the note, and the reader needed no change — the
+`orientation: ` prefix was already routed. **One note per degraded axis**, joined by
+the note separator, so CDR 2 (time and place, person holding) is distinguishable from
+CDR 3 (all three); a single blended sentence would have hidden exactly the difference
+3C's discriminating evidence is made of. The note states a *standing condition* and
+so recurs every turn, like the fade's, and the report collapses identical lines into
+one naming its turns. Healthy still emits nothing, or the reader would report a
+deficit the profile does not have. Pinned from both sides for all four profiles, and
+re-driven: the same CDR 1 probe now reads
+
+```
+ORIENTATION
+  - turns 1, 2, 3: the weekday and the date are withheld — she cannot recite what she was not given
+  intended: time mistaken; place confident; person confident
+```
+
+No profile YAML changed, no schema changed, and no new symptom was added — the
+behaviour was already correct and already specified. Only its explanation was
+missing.
+
+### Sprint 3C — the coach 🔶 (in progress)
+
+Three kinds of feedback, all by rule: **discriminating evidence** where rated ≠
+actual (the turns whose recorded behaviour separates the two stages, phrased from
+profile numbers and spec anchors); **coverage** — what was never elicited ("the day
+was never asked"), the feedback only an active interview can get; **confirming
+evidence** when right. Plus review mode (the trace panel unlocked over the finished
+transcript) and the plain history (date, actual, rated, hit or miss — a mirror, not
+a mark). The phase's success criterion: a trainee who rates wrongly can point,
+after the reveal, to the turns they misread or the probes they never asked.
+
+Built: `assessment/coach.py` (a pure reader, like the ledger — no LLM, no storage),
+`GET /api/session/{id}/review`, `GET /api/assessments`, and the three UI pieces —
+coach cards above the now-collapsed raw ledger, review mode reusing the Stage 9
+why-panel wholesale, and the history table on the gallery. `make check` green at
+614.
+
+Three things worth keeping straight, because each was a decision and not a detail:
+
+- **Coverage is never reported as a misreading.** A domain with evidence
+  discriminates by what it showed; one *probed and clean* discriminates the other
+  way (being asked the day and answering it rules a stage out); one never probed
+  discriminates nothing, however confident the rating. Collapsing the last two
+  would tell a trainee they read something correctly when they never looked, and a
+  test pins the distinction.
+- **The gap is counted in rungs, not CDR points.** 0.5→1 and 2→3 are both one step.
+  "One rung too high" is the reading being trained; "0.5 too high" would invite
+  arithmetic on a scale that has none.
+- **Language says when the interview could not have shown it.** The actual stage is
+  the drawn profile and never inferred from the transcript — so a domain can be
+  "wrong" while the transcript supported the answer given. Word-finding is a *rate*,
+  and one groping pause in six turns reads as 17%, which belongs to no stage. The
+  coach states the observed cadence beside both intended rates and names the
+  sampling problem rather than calling a defensible reading a miss.
+
+**The anchors moved out of source into `assessment/anchors.yaml`.** The coach quotes
+the same clinical text the worksheet shows, and two copies of a stage description
+drift; worse, putting it in Python broke
+`test_no_impairment_concepts_in_the_healthy_core` — "dementia" in the healthy core.
+Holding it as data keeps that ban whole instead of carving an exception into it, and
+matches severity being data. The page fetches `/api/anchors`, and a test asserts it
+keeps no anchor text of its own.
+
+**Review is locked server-side until commit**, by the `committed_at` column and not
+by the browser being polite: the trace names every withheld memory and its reason,
+so before the rating is in it *is* the answer key, and the browser is exactly what a
+curious trainee opens the devtools on. History lists **committed interviews only** —
+opening the gallery draws a severity, so an abandoned interview leaves a row with no
+rating and no turns, and listing those would pad a training record with interviews
+that never happened.
+
+Driven against qwen3:14b in the browser. Four defects the tests missed and the drive
+caught: orientation printed its standing condition once per turn (now collapsed as
+the report does), an empty turn list rendered as "turns ", the rung distance said
+"one reading too low" for a two-rung gap, and remote-memory-intact was missing from
+the evidence — which is half the diagnosis, since remote holding while recent fails
+*is* the dissociation.
+
+**Driven at every stage.** Eight blind interviews against qwen3:14b through the real
+HTTP API, each with the same seven-probe battery (orientation to time and place,
+three-word registration, remote biography, recent episodic, a multi-part planning
+question, delayed recall across a four-turn gap), rated from the transcript *before*
+committing: healthy ×1, CDR 0.5 ×2, CDR 1 ×2, CDR 2 ×1, CDR 3 ×2. Five global
+ratings right, three wrong — and the three wrong ones are the evidence that matters:
+
+- **CDR 0.5 read as healthy.** Breakfast came back with its content, delayed recall
+  was 3/3, and not one word-finding pause fired in seven turns. The coach named all
+  three domains, and on language said plainly that 0 of 7 turns showed anything
+  against 12% intended — *"a short interview samples a rate poorly; this one may not
+  have been readable"*. That is the honest answer, and the reason the cadence note
+  exists.
+- **The registration probe was misread as memory.** "Table. Penny." with *apple*
+  missing looked like impaired registration; the coach showed it was the **turn-3
+  overrun** — the four-part question dropped the word before she ever heard it. A
+  misattribution between two domains, caught by a mechanism naming its own turn.
+  This is the clearest demonstration in the phase that the ledger is worth having.
+- **Judgment under-rated twice**, at CDR 0.5 and CDR 3, both times because the
+  overrun evidence was in the transcript and not read.
+
+Healthy behaves as it must: no orientation note at all (*"intended: time confident"*
+beside *"no disorientation observed"* — the amendment does not leak into a profile
+that gates nothing), and the probed-and-clean path fires — *"Nothing impaired showed,
+and you did ask — turns 1, 2. A clean answer to a real probe is evidence, not an
+absence of it."* At CDR 3 all three orientation axes withhold at once (time, place
+and person), which no earlier drive had exercised.
+
+One defect the drive caught and fixed: healthy's `long_question_clauses: 0` means
+the overrun is *off*, but the difference line printed it raw — "she holds 0 part(s)
+at yours" — which reads as though healthy held nothing and were the worse stage.
+Now "never overruns", pinned by test.
+
+**One observation, recorded rather than fixed.** At CDR 3 the ledger reports remote
+memory "came back intact" while the transcript reads *"Rain. Orchards. Henry.
+Vermont."* Both are true — retrieval succeeded, and `simplified_language` shortened
+the expression — but a trainee could reasonably read the two as contradicting each
+other. It is arguably the correct teaching (remote memory *is* relatively preserved
+at CDR 3; what fails is saying it), and it is left alone until a real trainee says
+otherwise rather than fixed on a guess.
+
+### Not in Phase 3 — do not build these
+
+LLM-generated feedback or summaries; severity inference from transcripts; grades,
+scores, certification or leaderboards (history only); adaptive difficulty over the
+draw and an informant-interview mode for the ADL domains (both `docs/future.md`);
+random persona generation (Phase 4 — the draw varies the *profile* over one authored
+persona, not the *person*); progression (Phase 5); and any new symptom, mechanism,
+or profile field — a gap a drive exposes is a Phase 2 amendment argued with a
+transcript, never a Phase 3 feature.
+
+---
+
+## Phase 1 stages (complete)
 
 ### Stage 0 — Project foundation ✅
 
@@ -536,25 +1212,6 @@ answers.
 
 ---
 
-### Stage 9 — original plan ⬜
-
-A second adapter over the Stage 7 orchestrator, alongside the CLI. No changes to
-memory, retrieval, or storage.
-
-A conversation pane beside a live memory-trace panel: which memories fired, of
-which type, with what score components and retrieval reason, and the typed links
-behind any causal claim. This is the debugging surface Phase 2 needs most, since
-impairment simulation is the study of how retrieval degrades.
-
-Sequenced after the CLI on purpose: `persona trace` forces the trace into a
-human-readable form first, keeping it an honest data structure rather than one
-shaped around a UI component.
-
-**Exit criteria.** Adds FastAPI + uvicorn, justified in `tech_stack.md`; the
-orchestrator is untouched.
-
----
-
 ## Deviations from the original documents
 
 | Decision | Reason |
@@ -577,7 +1234,8 @@ Transformers, Neo4j, Qdrant, Redis, Pinecone, PostgreSQL — remains untouched.
 These live in `tests/test_invariants.py`. Each was verified to fail when
 deliberately violated, so none is vacuous.
 
-1. No Phase 2 vocabulary anywhere in source — not even as a disabled flag.
+1. No Phase 2 vocabulary anywhere in source — not even as a disabled flag. **Sprint
+   2A must narrow this to the healthy core rather than delete it — see Open issues.**
 2. `models/` performs no I/O.
 3. `storage/` imports no reasoning layer and contains no ranking logic.
 4. No ORM row or `sqlalchemy` import escapes `storage/`.
@@ -596,7 +1254,57 @@ deliberately violated, so none is vacuous.
 
 ## Open issues
 
-**None.** Every issue raised in Stages 5–8 is closed. The five that blocked Stage 8:
+**Graded delayed recall — 2 of 3 words, not 0 of 3 — RESOLVED (transcript fade).**
+The first clinical review scored the persona at "CDR ≈ 0–0.25, not 0.5", and the
+single most diagnostic probe was the three-word delayed recall: she scored 3/3 by
+reading the words *verbatim out of the prompt* six turns later, through the healthy
+transcript window. Shortening that window (the old `working_memory_turns: 5`) made
+the probe fail honestly — but it failed **completely**, "I don't remember any
+words", and a second review flagged that a flat blank is a *heavier* deficit than
+CDR 0.5, where a patient drops one word and keeps two.
+
+The original plan here was to **encode what is said in a session as episodic
+memory**, so the recall gate would apply per item — but that is a change to Phase 1
+*formation*, and it turned out to be unnecessary. The lighter fix, shipped in
+`impairment/hold.py`, keeps the words as free text and **fades the transcript word
+by word** at the prompt seam instead of truncating it: the last `crisp_turns`
+exchanges are held whole (immediate registration intact), older exchanges lose words
+progressively (`sha256`-hashed, so a session replays identically), and beyond
+`crisp_turns + fade_turns` the exchange is gone. Partial recall falls out — 3/3 at a
+short delay, 2/3 and then 1/3 as the delay grows — with Phase 1 formation untouched
+and the closed-cast rule intact.
+
+One honest bound, recorded rather than hidden: **cued recovery of a word that has
+faded *completely* is not reachable** and must not be. The reviewer's "*it was a
+colour → oh yes, Blue*" works only while the word partially survives; once it is gone
+from the transcript there is nothing to catch on, and inventing "Blue" from a
+category cue would be the confabulation the whole layer forbids. She declines the cue
+("no, I don't think so") rather than manufacture the answer. If cued recovery of a
+fully-lost item is ever wanted, *that* is what needs per-item episodic encoding — and
+it can wait for its own sprint, no longer blocking CDR 0.5.
+
+Until then, 0-of-3 is a slightly severe reading of CDR 0.5, and it is stated rather
+than hidden.
+
+**The drive is not finished, and the numbers are still starting values.** The
+headline criterion — a caregiver tells her from the healthy persona in 15–20 minutes
+while still recognising her as the same woman — is judged on a transcript, and the
+second review has not happened. `data/profiles/cdr05.yaml` is data; expect to tune it.
+
+---
+
+## Closed issues
+
+**Invariant 1 narrowed to the healthy core, as decided.** It banned Phase 2
+vocabulary from all of `src/`; it now bans it from everything *outside*
+`src/personasim/impairment/`, which is the one place that vocabulary belongs. It was
+narrowed, not deleted, and it gained two siblings: `impairment/` may import neither
+the LLM, nor storage, nor `random` (withholds and hedges, never manufactures — and
+deterministically, or the trace lies); and the healthy core may not import
+`impairment` back, except the conversation loop, whose job is composition. The
+wrapper claim is still enforced by test, from both directions.
+
+Every issue raised in Stages 5–8 is closed. The five that blocked Stage 8:
 
 1. ~~She embroiders~~ — clamped (prompt, temperature, participant roles, and the
    un-nesting of connected memories).
@@ -714,16 +1422,26 @@ found weeks later by talking to a persona and watching her deny her own dog.
 
 ## Where to pick up
 
-**Phase 1 is complete.** Stage 9 — the web frontend with a memory-trace panel — is
-the only stage left, and it is a *second adapter over work that already exists*: a
-conversation pane beside a live trace panel, showing which memories fired, of which
-type, with what score components and retrieval reason, and the typed links behind
-any causal claim. `Conversation` and `render_session` already produce everything it
-needs. **The orchestrator must not change.** Adds FastAPI + uvicorn, to be justified
-in `tech_stack.md`.
+**Sprint 3C — the coach.** Phase 2 is signed off; 3A and 3B are built and driven
+clean, with sign-off pending on both. Phase 1 remains tagged `phase-1-complete` and
+that tag is still the way back.
 
-Before starting it, read `CLAUDE.md` — the stage gate and *Who is in the room* are
-not optional, and neither is this:
+Everything 3C needs now exists and is honest. The ledger reads every mechanism
+including orientation (the 3B amendment above), coverage knows what was never
+elicited, and `assessments` holds actual and rated per session, with
+`AssessmentRepository.history()` already written for the history view. So 3C is
+mostly a *renderer* over evidence that is already there — which is the point, and
+the reason to resist the temptation to add a mechanism to explain a gap. A gap the
+coach cannot explain is a Phase 2 amendment argued with a transcript, exactly as the
+orientation one was.
+
+The one thing to get right: **discriminating evidence is the turns where the two
+stages genuinely differ**, phrased from profile numbers and spec anchors — not a
+restatement of everything observed. A trainee who rated 2 against an actual 1 needs
+the lines that separate 1 from 2, not the whole ledger again.
+
+Before starting, read `CLAUDE.md` — the stage gate, *Who is in the room*, and the
+closed cast are not optional, and neither is this:
 
 **Driving beats testing, and it is not close.** Every real defect in Stages 5–8 was
 found by talking to the persona; the suite was green through all of them. She
@@ -735,3 +1453,10 @@ keyworded `grew` that "where did you **grow** up?" could never reach.
 Tests encode the failures you already imagined. She fails in ways you did not. So:
 build the instrument, go looking for trouble, and write the tests *after*, against
 what actually broke.
+
+It kept being true through Phase 3, where the thing being driven is no longer only
+her. 598 tests were green while the reveal said "no disorientation observed" about a
+woman who had just lost the weekday, and while the app recommended a question its own
+classifier could not see. Both took three turns of a real interview to find. **Drive
+the loop, not just the persona** — read the report it produces and check it against
+the transcript beside it, line by line.

@@ -10,10 +10,68 @@
     <!-- The gallery. One persona today; the layout assumes there will be more. -->
     <main id="gallery" class="view">
       <header class="gallery-head">
-        <h1>Personas</h1>
-        <p class="muted">Choose someone to talk to.</p>
+        <div class="hero">
+          <div class="hero-text">
+            <h1>Persona</h1>
+            <p class="hero-sub">Choose a patient to begin.</p>
+            <!-- Two sentences, swapped by mode in app.js: assessment mode is a test
+                 and says so; plain mode is a conversation and must not imply a score
+                 nobody is keeping. -->
+            <p id="hero-line" class="hero-line"></p>
+            <p id="hero-quiet" class="hero-quiet"></p>
+          </div>
+
+          <!-- Contour lines: elevation rings closing on a single point. It is a map
+               and it is a mind, which is the whole product in one mark. Inline,
+               monochrome, decorative — the page reads identically without it. -->
+          <svg class="hero-mark" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" stroke-linejoin="round">
+              <path stroke-width="1.5"
+                d="M63 7c27-2 48 17 50 41 2 25-9 46-31 54-23 9-48 2-60-17C10 66 15 40 32 23 41 13 52 8 63 7Z" />
+              <path stroke-width="1.4" opacity=".8"
+                d="M64 24c18-1 32 12 34 28 2 17-6 32-21 38-16 6-34 1-42-13-8-13-6-31 5-42 7-7 15-11 24-11Z" />
+              <path stroke-width="1.3" opacity=".6"
+                d="M64 41c11 0 21 8 22 19 1 10-5 20-15 23-10 3-21-2-25-11-4-9-1-20 7-26 3-3 7-5 11-5Z" />
+              <path stroke-width="1.2" opacity=".45"
+                d="M64 58c6 1 10 6 9 12-1 6-7 10-13 8-6-2-9-8-7-14 1-4 5-6 11-6Z" />
+            </g>
+          </svg>
+        </div>
+
+        <div id="assess-note" class="assess-note hidden">
+          <span class="assess-icon" aria-hidden="true">i</span>
+          <div class="assess-copy">
+            <p class="assess-title">Blind assessment</p>
+            <p class="assess-body">
+              CDR severity is drawn at random and hidden — this patient may be perfectly
+              healthy. Interview naturally, then commit a rating to see how you read it.
+            </p>
+          </div>
+        </div>
       </header>
       <div id="cards" class="cards"></div>
+
+      <!-- The history: a mirror, not a mark. Date, actual, rated, hit or miss —
+           no score, no streak, no pass mark. A trainee who keeps over-calling
+           healthy patients sees the column and draws their own conclusion. -->
+      <section id="history" class="history hidden">
+        <h2>Your past interviews</h2>
+        <table id="history-table" class="history-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Real</th>
+              <th>Predicted</th>
+              <th>Memory</th>
+              <th>Orientation</th>
+              <th>Judgement</th>
+              <th>Language</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="history-rows"></tbody>
+        </table>
+      </section>
       <p id="gallery-empty" class="empty hidden">
         No personas yet. Seed one: <code>persona seed data/personas/elena.yaml</code>
       </p>
@@ -27,30 +85,110 @@
           <span id="chat-name"></span>
           <span id="chat-sub" class="muted"></span>
         </div>
+        <span id="mode-badge" class="badge hidden">Blind assessment</span>
         <div class="actions">
-          <button id="download" class="ghost">Download transcript</button>
-          <button id="end" class="danger">End conversation</button>
+          <button id="download" class="ghost">Download Transcript</button>
+          <button id="end" class="danger">End Conversation</button>
         </div>
       </nav>
 
-      <div id="messages" class="messages"></div>
+      <div id="chat-body" class="chat-body">
+        <div class="chat-main">
+          <div id="messages" class="messages"></div>
 
-      <div id="ended" class="ended hidden">
-        <span>This conversation has ended.</span>
-        <button id="download-ended" class="ghost">Download transcript</button>
-        <button id="back-ended" class="ghost">Back to personas</button>
+          <div id="ended" class="ended hidden">
+            <span>This conversation has ended.</span>
+            <button id="download-ended" class="ghost">Download transcript</button>
+            <button id="back-ended" class="ghost">Back to personas</button>
+          </div>
+
+          <form id="composer" class="composer">
+            <input
+              id="input"
+              type="text"
+              autocomplete="off"
+              placeholder="Say something…"
+              maxlength="2000"
+            />
+            <button id="send" type="submit">Send</button>
+          </form>
+        </div>
+
+        <!-- The worksheet. Provisional while the interview runs; the commit is
+             the commitment — after it, and only after it, the reveal. -->
+        <aside id="worksheet" class="worksheet hidden">
+          <h2>Your rating</h2>
+          <p class="muted small">
+            Rate as you go. Committing ends the
+            interview.
+          </p>
+          <div id="ws-rows" class="ws-rows"></div>
+          <button id="commit" disabled>Commit rating</button>
+          <p id="commit-hint" class="muted small"></p>
+
+          <details class="guide">
+            <summary>Interview guide</summary>
+            <ul>
+              <li>Orientation — “What day is it today?” · “Where are we right now?”</li>
+              <li>Delayed recall — “Remember these three words…”, then ask for them a few turns later</li>
+              <li>Recent memory — “What did you have for breakfast?” · “What did we talk about earlier?”</li>
+              <li>Remote memory — “Where did you grow up?” · “Tell me about your wedding.”</li>
+              <li>Sequencing — ask one question with several parts</li>
+              <li>Listen for — word-finding pauses, repetition, whether she notices her own lapses</li>
+            </ul>
+          </details>
+        </aside>
       </div>
 
-      <form id="composer" class="composer">
-        <input
-          id="input"
-          type="text"
-          autocomplete="off"
-          placeholder="Say something…"
-          maxlength="2000"
-        />
-        <button id="send" type="submit">Send</button>
-      </form>
+      <!-- The reveal. -->
+      <section id="reveal" class="reveal hidden">
+        <div class="reveal-head">
+          <div class="reveal-col">
+            <span class="muted small">She was</span>
+            <h2 id="reveal-actual"></h2>
+          </div>
+          <div class="reveal-col">
+            <span class="muted small">You said</span>
+            <h2 id="reveal-yours"></h2>
+          </div>
+          <span id="reveal-verdict" class="verdict"></span>
+        </div>
+        <div id="reveal-domains" class="reveal-domains"></div>
+
+        <!-- The coach: what was misread, what was never asked, what was read
+             right. Above the raw ledger, because it is the reading of it. -->
+        <div id="coach" class="coach hidden"></div>
+
+        <details class="ledger-details">
+          <summary>The raw evidence ledger</summary>
+          <pre id="reveal-report" class="report"></pre>
+        </details>
+        <div class="reveal-actions">
+          <button id="review">Review the interview</button>
+          <button id="download-reveal" class="ghost">Download transcript</button>
+          <button id="reveal-back" class="ghost">Back to personas</button>
+        </div>
+      </section>
+
+      <!-- Review mode: the finished interview, with the why-panel unlocked. Only
+           reachable after the rating is committed — before that the trace is the
+           answer key, and the server refuses it. -->
+      <section id="review-view" class="reveal hidden">
+        <div class="reveal-head">
+          <div class="reveal-col">
+            <span class="muted small">Reviewing — she was</span>
+            <h2 id="review-actual"></h2>
+          </div>
+        </div>
+        <p class="muted small review-note">
+          Every turn now carries its “why?”: what was found, what was withheld, and
+          the reason. This is the record the report was read from.
+        </p>
+        <div id="review-turns" class="messages review-turns"></div>
+        <div class="reveal-actions">
+          <button id="review-back" class="ghost">Back to the reveal</button>
+        </div>
+      </section>
     </main>
 
     <script src="/static/app.js"></script>

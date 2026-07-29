@@ -14,6 +14,7 @@ from pathlib import Path
 from personasim.config import Settings, get_settings
 from personasim.conversation import Conversation
 from personasim.conversation.render import render_session, render_trace
+from personasim.impairment import HEALTHY, CognitiveProfile, ProfileError, load_profile
 from personasim.llm import LLMClient, LLMError, build_client
 from personasim.logging import configure_logging
 from personasim.models.persona import Persona, PersonaId
@@ -51,6 +52,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the memory trace behind every reply — which memories fired, and why",
     )
+    chat.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "a cognitive profile YAML (see data/profiles/). Omitted, the persona "
+            "is healthy — exactly the Phase 1 behaviour."
+        ),
+    )
 
     new = subcommands.add_parser(
         "new", help="author a new persona by answering questions — no gaps, no conflicts"
@@ -65,6 +74,29 @@ def _build_parser() -> argparse.ArgumentParser:
     serve = subcommands.add_parser("serve", help="serve the web frontend")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "a cognitive profile YAML (see data/profiles/). Defaults to "
+            "PERSONA_PROFILE, or healthy if that is unset too."
+        ),
+    )
+    serve.add_argument(
+        "--assessment",
+        action="store_true",
+        help=(
+            "blind assessment mode: every session draws a hidden severity from "
+            "--profiles-dir (healthy included), the caregiver rates it, and the "
+            "reveal shows the truth with the evidence. Excludes --profile."
+        ),
+    )
+    serve.add_argument(
+        "--profiles-dir",
+        type=Path,
+        default=Path("data/profiles"),
+        help="the pool the assessment draw uses; every YAML in it is a candidate",
+    )
 
     trace = subcommands.add_parser(
         "trace",
@@ -79,6 +111,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "--list",
         action="store_true",
         help="list this persona's sessions instead of replaying one",
+    )
+
+    assess = subcommands.add_parser(
+        "assess",
+        help="the evidence ledger: what one session showed, per clinical domain",
+    )
+    assess.add_argument("persona", help="the persona id, e.g. elena-marsh")
+    assess.add_argument(
+        "--session",
+        help="the session to assess; defaults to the most recent one",
+    )
+    assess.add_argument(
+        "--list",
+        action="store_true",
+        help="list this persona's sessions instead of assessing one",
+    )
+    assess.add_argument(
+        "--profile",
+        type=Path,
+        help=(
+            "the cognitive profile the session ran under (see data/profiles/). "
+            "Given, the report states each mechanism's intended numbers beside "
+            "what was observed; omitted, it reports observations only."
+        ),
     )
 
     return parser
@@ -136,8 +192,18 @@ def _load(database: Database, persona_id: PersonaId) -> Persona | None:
 
 
 def _chat(
-    settings: Settings, database_override: Path | None, persona_id: PersonaId, show_trace: bool
+    settings: Settings,
+    database_override: Path | None,
+    persona_id: PersonaId,
+    show_trace: bool,
+    profile_path: Path | None,
 ) -> int:
+    try:
+        profile = load_profile(profile_path) if profile_path else HEALTHY
+    except ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
     database = _open_database(settings, database_override)
     try:
         persona = _load(database, persona_id)
@@ -150,7 +216,7 @@ def _chat(
             print(f"error: {llm.model} is not reachable at {settings.llm_host}.", file=sys.stderr)
             return 1
 
-        return _talk(persona, llm, database, settings, show_trace)
+        return _talk(persona, llm, database, settings, show_trace, profile)
     finally:
         database.dispose()
 
@@ -161,12 +227,15 @@ def _talk(
     database: Database,
     settings: Settings,
     show_trace: bool,
+    profile: CognitiveProfile,
 ) -> int:
     """The loop. `Conversation` is a context manager, so the session is closed and
     working memory discarded even if this falls over."""
     print(f"Talking to {persona.identity.name}. Ctrl-D or /quit to end the session.")
+    if profile.gates_recall or profile.name != HEALTHY.name:
+        print(f"Cognitive profile: {profile.label or profile.name}")
 
-    with Conversation(persona, llm, database, settings) as chat:
+    with Conversation(persona, llm, database, settings, profile=profile) as chat:
         print()
 
         while True:
@@ -246,6 +315,53 @@ def _list_sessions(sessions: list[SessionSummary], persona_id: PersonaId) -> int
     return 0
 
 
+def _assess(
+    settings: Settings,
+    database_override: Path | None,
+    persona_id: PersonaId,
+    session_id: str | None,
+    show_list: bool,
+    profile_path: Path | None,
+) -> int:
+    """The evidence ledger over one logged session (Sprint 3A).
+
+    A pure reader: aggregates the traces the session already recorded into a
+    per-domain report, every line naming its turn. The session log does not record
+    which profile it ran under — that lands with the assessments table in Sprint
+    3B — so until then `--profile` lets the operator state it, which adds the
+    intended-versus-observed column.
+    """
+    from personasim.assessment import build_ledger, render_report
+
+    profile = None
+    if profile_path is not None:
+        try:
+            profile = load_profile(profile_path)
+        except ProfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    database = _open_database(settings, database_override)
+    try:
+        with database.session() as db:
+            sessions = SessionRepository(db)
+
+            if show_list:
+                return _list_sessions(sessions.list_sessions(persona_id), persona_id)
+
+            chosen = session_id or sessions.latest_session_id(persona_id)
+            if chosen is None:
+                print(f"error: {persona_id} has no recorded sessions.", file=sys.stderr)
+                return 1
+
+            turns = sessions.get_turns(chosen)
+
+        print(render_report(build_ledger(chosen, turns), profile))
+        return 0
+    finally:
+        database.dispose()
+
+
 def _new(output: Path | None) -> int:
     """Author a persona by being asked, rather than by remembering to.
 
@@ -289,7 +405,15 @@ def _check(file: Path) -> int:
     return 0 if gaps.is_clean else 1
 
 
-def _serve(settings: Settings, database_override: Path | None, host: str, port: int) -> int:
+def _serve(
+    settings: Settings,
+    database_override: Path | None,
+    host: str,
+    port: int,
+    profile_path: Path | None,
+    assessment: bool,
+    profiles_dir: Path,
+) -> int:
     """Run the web adapter.
 
     Imported here, not at module scope: `persona seed` and `persona chat` must not
@@ -300,9 +424,46 @@ def _serve(settings: Settings, database_override: Path | None, host: str, port: 
     from personasim.web import create_app
 
     database = Database.from_path(database_override or settings.database_path)
-    app = create_app(settings, database)
+
+    if assessment:
+        # Blind mode: the pool is every profile in the directory — healthy
+        # included, which is what keeps over-diagnosis trainable — and the drawn
+        # label is never printed. Saying which severities *could* be drawn is fine;
+        # saying which one was is the whole thing this mode exists to withhold.
+        if profile_path is not None:
+            print("error: --assessment and --profile are mutually exclusive", file=sys.stderr)
+            return 1
+        try:
+            pool = [load_profile(path) for path in sorted(profiles_dir.glob("*.yaml"))]
+        except ProfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if not pool:
+            print(f"error: no profiles in {profiles_dir}", file=sys.stderr)
+            return 1
+
+        app = create_app(settings, database, assessment_pool=pool)
+        print(f"Serving on http://{host}:{port}")
+        print(
+            f"Assessment mode: severity drawn per session and hidden "
+            f"({len(pool)} profiles in the pool)"
+        )
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+        return 0
+
+    chosen = profile_path or settings.profile
+    try:
+        profile = load_profile(chosen) if chosen else HEALTHY
+    except ProfileError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    app = create_app(settings, database, profile=profile)
 
     print(f"Serving on http://{host}:{port}")
+    # Said every time. A tester who thinks they are driving CDR 0.5 and is in fact
+    # talking to the healthy persona will conclude the impairment layer is broken.
+    print(f"Cognitive profile: {profile.label or profile.name}")
     uvicorn.run(app, host=host, port=port, log_level="warning")
     return 0
 
@@ -316,13 +477,24 @@ def main(argv: list[str] | None = None) -> int:
         return _seed(settings, args.database, args.file, args.force)
 
     if args.command == "chat":
-        return _chat(settings, args.database, args.persona, args.trace)
+        return _chat(settings, args.database, args.persona, args.trace, args.profile)
 
     if args.command == "trace":
         return _trace(settings, args.database, args.persona, args.session, args.list)
 
+    if args.command == "assess":
+        return _assess(settings, args.database, args.persona, args.session, args.list, args.profile)
+
     if args.command == "serve":
-        return _serve(settings, args.database, args.host, args.port)
+        return _serve(
+            settings,
+            args.database,
+            args.host,
+            args.port,
+            args.profile,
+            args.assessment,
+            args.profiles_dir,
+        )
 
     if args.command == "new":
         return _new(args.output)

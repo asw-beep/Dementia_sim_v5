@@ -17,13 +17,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from personasim.config import Settings
+from personasim.impairment import load_profile
 from personasim.llm.base import ChatMessage
 from personasim.persona import build_persona, read_seed_file
 from personasim.storage import Database, PersonaRepository
-from personasim.web.app import create_app
+from personasim.web.app import Worksheet, create_app
 
 SEED_FILE = Path(__file__).resolve().parents[1] / "data" / "personas" / "elena.yaml"
 WEB = Path(__file__).resolve().parents[1] / "src" / "personasim" / "web"
+PROFILES = Path(__file__).resolve().parents[1] / "data" / "profiles"
 
 
 class ScriptedLLM:
@@ -62,6 +64,86 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     )
     with TestClient(create_app(Settings(), database)) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def impaired_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    """The same app, served at CDR 0.5."""
+    database = Database.from_path(tmp_path / "web.db")
+    database.create_schema()
+    with database.session() as db:
+        PersonaRepository(db).save(build_persona(read_seed_file(SEED_FILE)))
+
+    monkeypatch.setattr(
+        "personasim.web.app.build_client",
+        lambda settings: ScriptedLLM("It's slipped my mind."),
+    )
+    profile = load_profile(PROFILES / "cdr05.yaml")
+    with TestClient(create_app(Settings(), database, profile=profile)) as test_client:
+        yield test_client
+
+
+class TestTheServedProfile:
+    """The web app is a second adapter over the same loop, and it must carry the
+    profile the way the CLI does.
+
+    This is pinned because it shipped broken for an hour: `--profile` reached
+    `persona chat` and not `persona serve`, so `./run start` served the *healthy*
+    persona — and a tester driving what they believe is CDR 0.5 while talking to a
+    healthy woman concludes the impairment layer does not work.
+    """
+
+    def test_healthy_by_default(self, client: TestClient) -> None:
+        assert client.get("/api/profile").json()["name"] == "healthy"
+
+    def test_the_profile_is_named_so_a_tester_knows_which_elena_this_is(
+        self, impaired_client: TestClient
+    ) -> None:
+        assert impaired_client.get("/api/profile").json()["name"] == "cdr05"
+
+    def test_an_impaired_session_actually_gates_recall(self, impaired_client: TestClient) -> None:
+        """Not merely reported — the served conversation is genuinely impaired.
+
+        A just-disclosed fact, asked straight back, is *never recalled crisply* at
+        CDR 0.5: depending on how well this session laid it down, it comes back
+        hedged, in outline, or not at all — but never with the full confidence the
+        healthy persona returns it with (`test_a_healthy_session_withholds_nothing`).
+        That "never crisp" is the deterministic invariant; *which* of withheld or
+        hedged it lands on is the encoding hash's business, and asserting one
+        particular outcome made this test a coin toss that failed two runs in three.
+        """
+        session = open_session(impaired_client)
+
+        told = impaired_client.post(
+            f"/api/session/{session}/message", json={"text": "I live in Portland."}
+        ).json()
+        assert told["formed"]  # formation is not impaired
+
+        asked = impaired_client.post(
+            f"/api/session/{session}/message",
+            json={"text": "how are things at home these days?"},
+        ).json()
+
+        trace = asked["trace"]
+        withheld = any("Portland" in gone["summary"] for gone in trace["withheld"])
+        hedged = any(
+            "Portland" in got["summary"] and (got["hedged"] or got["detail_withheld"])
+            for got in trace["retrieved"]
+        )
+        crisp = any(
+            "Portland" in got["summary"] and not got["hedged"] and not got["detail_withheld"]
+            for got in trace["retrieved"]
+        )
+        assert withheld or hedged  # impaired: it does not come back like her own name
+        assert not crisp  # and never, in any session, at full confidence
+
+    def test_a_healthy_session_withholds_nothing(self, client: TestClient) -> None:
+        session = open_session(client)
+        reply = client.post(
+            f"/api/session/{session}/message", json={"text": "tell me about your dog"}
+        ).json()
+
+        assert reply["trace"]["withheld"] == []
 
 
 def open_session(client: TestClient) -> str:
@@ -230,3 +312,330 @@ class TestTheAdapterAddsNothing:
         assert "fetch(" in script
         for invented in ("memories =", "remember(", "retrieve("):
             assert invented not in script
+
+
+# ---------------------------------------------------------------- Sprint 3B
+
+
+@pytest.fixture
+def assessment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[TestClient, Database]]:
+    """The app in blind assessment mode: a hidden severity drawn per session."""
+    database = Database.from_path(tmp_path / "web.db")
+    database.create_schema()
+    with database.session() as db:
+        PersonaRepository(db).save(build_persona(read_seed_file(SEED_FILE)))
+
+    monkeypatch.setattr(
+        "personasim.web.app.build_client",
+        lambda settings: ScriptedLLM("I could not say, dear."),
+    )
+    pool = [load_profile(path) for path in sorted(PROFILES.glob("*.yaml"))]
+    with TestClient(create_app(Settings(), database, assessment_pool=pool)) as test_client:
+        yield test_client, database
+
+
+POOL_NAMES = {"healthy", "cdr05", "cdr1", "cdr2", "cdr3"}
+
+
+class TestAssessmentMode:
+    """The blind loop: draw hidden, interview blind, commit, and only then reveal.
+
+    Blindness is a set of sealed leaks, and each seal is pinned here: the profile
+    endpoint, the per-message trace (the answer key), the transcript download, and
+    the open-session response. The draw itself goes to storage, where only the
+    reveal reads it.
+    """
+
+    def test_the_profile_endpoint_hides_the_draw(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        profile = client.get("/api/profile").json()
+
+        assert profile["assessment"] is True
+        assert profile["name"] == "assessment"
+        assert profile["name"] not in POOL_NAMES  # no severity name escapes
+        assert "hidden" in profile["label"].lower()
+
+    def test_opening_a_session_returns_only_a_session_id(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        payload = client.post("/api/personas/elena-marsh/session").json()
+        assert set(payload) == {"session_id"}
+
+    def test_a_blind_reply_carries_no_trace_and_no_formed(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+
+        reply = client.post(
+            f"/api/session/{session}/message", json={"text": "I live in Portland."}
+        ).json()
+
+        assert reply["trace"] is None  # the trace is the answer key
+        assert reply["formed"] == []
+
+    def test_the_transcript_download_is_blind_too(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+
+        turns = client.get(f"/api/session/{session}/transcript").json()["turns"]
+        assert turns
+        assert all(turn["trace"] is None for turn in turns)
+
+    def test_the_draw_never_repeats_the_previous_session(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        """Three healthy draws in a row read as a broken simulator, not as a 1/125
+        coincidence — and that is what a trainee actually concluded. Consecutive
+        sessions therefore never draw the same stage. Twenty openings: uniform over
+        five profiles this fails within a handful of runs without the hold-out."""
+        from itertools import pairwise
+
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        sessions = [open_session(client) for _ in range(20)]
+
+        with database.session() as db:
+            repository = AssessmentRepository(db)
+            drawn = [record.actual_profile for s in sessions if (record := repository.get(s))]
+
+        assert len(drawn) == 20
+        assert all(a != b for a, b in pairwise(drawn))
+        assert len(set(drawn)) > 1  # still varying, not pinned to two alternating
+
+    def test_the_draw_is_recorded_in_storage_not_in_any_response(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        session = open_session(client)
+
+        with database.session() as db:
+            record = AssessmentRepository(db).get(session)
+
+        assert record is not None
+        assert record.actual_profile in POOL_NAMES
+        assert record.committed_at is None  # drawn, not yet rated
+
+    def test_commit_reveals_actual_rating_and_the_ledger(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it today?"})
+
+        outcome = client.post(
+            f"/api/session/{session}/commit",
+            json={"global": 1.0, "memory": 0.5, "orientation": None},
+        )
+        assert outcome.status_code == 200
+        revealed = outcome.json()
+
+        assert revealed["actual"]["name"] in POOL_NAMES
+        assert revealed["ratings"]["global"] == 1.0
+        assert revealed["ratings"]["memory"] == 0.5
+        assert revealed["report"].startswith("Assessment ledger")
+        assert "PROBE COVERAGE" in revealed["report"]
+
+        with database.session() as db:
+            record = AssessmentRepository(db).get(session)
+        assert record is not None and record.committed_at is not None
+        assert record.ratings == revealed["ratings"]
+
+    def test_commit_ends_a_live_session_first(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "Hello."})
+
+        assert client.post(f"/api/session/{session}/commit", json={"global": 0}).status_code == 200
+        # The conversation closed with the commitment; there is no talking after it.
+        after = client.post(f"/api/session/{session}/message", json={"text": "One more?"})
+        assert after.status_code == 404
+
+    def test_a_second_commit_conflicts(self, assessment: tuple[TestClient, Database]) -> None:
+        client, _ = assessment
+        session = open_session(client)
+
+        assert client.post(f"/api/session/{session}/commit", json={"global": 2}).status_code == 200
+        assert client.post(f"/api/session/{session}/commit", json={"global": 3}).status_code == 409
+
+    def test_a_rating_off_the_cdr_scale_is_rejected(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        assert (
+            client.post(f"/api/session/{session}/commit", json={"global": 1.5}).status_code == 422
+        )
+
+    def test_a_plain_session_cannot_commit(self, client: TestClient) -> None:
+        session = open_session(client)
+        response = client.post(f"/api/session/{session}/commit", json={"global": 1.0})
+        assert response.status_code == 404
+
+    def test_a_plain_profiled_session_still_shows_its_trace(
+        self, impaired_client: TestClient
+    ) -> None:
+        """Blindness belongs to assessment mode alone: the ordinary profiled app
+        keeps the why-panel, exactly as Stage 9 built it."""
+        session = open_session(impaired_client)
+        reply = impaired_client.post(
+            f"/api/session/{session}/message", json={"text": "Hello there."}
+        ).json()
+        assert reply["trace"] is not None
+
+
+class TestWorksheetAnchors:
+    """The worksheet's vocabulary, pinned from both sides.
+
+    The domain names are written on the server (`Worksheet`'s fields) and keyed by
+    the reveal's per-domain rows; the anchor text is clinical description the coach
+    quotes back. Both were briefly duplicated in `app.js`, which is how a page and a
+    server end up disagreeing about what CDR 2 looks like — the page now fetches
+    them from `/api/anchors`, and what is pinned here is that the served set is
+    complete and matches the rating the server will accept.
+    """
+
+    APP_JS = (WEB / "static" / "app.js").read_text()
+
+    def test_the_served_domains_are_the_servers_domains(self, client: TestClient) -> None:
+        served = [entry["key"] for entry in client.get("/api/anchors").json()["domains"]]
+        assert served == list(Worksheet(**{"global": 1.0}).as_ratings())
+
+    def test_every_domain_is_anchored_at_every_point_on_the_scale(self, client: TestClient) -> None:
+        payload = client.get("/api/anchors").json()
+        scale = {"0.0", "0.5", "1.0", "2.0", "3.0"}
+        assert payload["rungs"] == [0.0, 0.5, 1.0, 2.0, 3.0]
+        assert {domain: set(rungs) for domain, rungs in payload["anchors"].items()} == {
+            entry["key"]: scale for entry in payload["domains"]
+        }
+
+    def test_the_page_keeps_no_anchor_text_of_its_own(self) -> None:
+        """The duplication that made this class necessary must not come back.
+
+        A hardcoded anchor in the page would not fail anything — it would simply
+        disagree with the coach, quietly, in the one place a trainee is trying to
+        learn the difference between two stages.
+        """
+        assert "const ANCHORS" not in self.APP_JS
+        assert "/api/anchors" in self.APP_JS
+        # A stage description in the page is the smell, whoever wrote it.
+        assert "forgetfulness" not in self.APP_JS
+
+    def test_anchors_are_served_outside_assessment_mode_too(self, client: TestClient) -> None:
+        """They describe the scale, not the draw. Serving them tells no one which
+        severity was picked, and the plain app is where a reader may want them."""
+        assert client.get("/api/anchors").status_code == 200
+
+    def test_the_reveal_carries_the_coach(self, assessment: tuple[TestClient, Database]) -> None:
+        """Sprint 3C at the seam: the reveal is no longer a raw ledger dump.
+
+        What is asserted is the contract the page renders from — a reading per
+        domain, each naming whether it was missed — not the prose, which is the
+        coach's to change.
+        """
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it today?"})
+
+        reveal = client.post(
+            f"/api/session/{session}/commit", json={"memory": 3.0, "global": 3.0}
+        ).json()
+
+        assert reveal["coach"], "the reveal carried no reading at all"
+        assert {r["domain"] for r in reveal["coach"]} <= {
+            "memory",
+            "orientation",
+            "judgment",
+            "language",
+            "global",
+        }
+        for reading in reveal["coach"]:
+            assert reading["kind"] in {"discriminating", "coverage", "confirming"}
+            assert reading["lines"], f"{reading['domain']} was reported with nothing to say"
+
+
+class TestReviewAndHistory:
+    """Sprint 3C's two smaller pieces, and the guard that matters.
+
+    Review mode unlocks the trace over a finished interview. The trace names every
+    withheld memory and the reason, so before the rating is committed it *is* the
+    answer key — and the lock has to live on the server, because the browser is
+    what a curious trainee opens the devtools on.
+    """
+
+    def test_review_is_refused_before_the_rating_is_committed(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+
+        refused = client.get(f"/api/session/{session}/review")
+        assert refused.status_code == 409
+        assert "answer key" in refused.json()["detail"]
+
+    def test_review_unlocks_the_trace_after_commit(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "What day is it?"})
+        client.post(f"/api/session/{session}/commit", json={"global": 1.0})
+
+        review = client.get(f"/api/session/{session}/review")
+        assert review.status_code == 200
+        turns = review.json()["turns"]
+        assert turns and all(turn["trace"] is not None for turn in turns)
+        # The reason is the whole point of unlocking it.
+        assert all("reason" in turn["trace"] for turn in turns)
+
+    def test_review_of_a_plain_session_is_not_offered(self, client: TestClient) -> None:
+        """Outside assessment mode there is no answer key to unlock — the trace was
+        never hidden — and no assessment record to check, so there is nothing here."""
+        session = open_session(client)
+        assert client.get(f"/api/session/{session}/review").status_code == 404
+
+    def test_history_lists_only_committed_interviews(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        """Opening the gallery draws a severity, so an abandoned interview leaves a
+        row behind. Listing those would pad a training record with interviews that
+        never happened."""
+        client, _ = assessment
+        abandoned = open_session(client)
+        finished = open_session(client)
+        client.post(f"/api/session/{finished}/message", json={"text": "Hello."})
+        client.post(f"/api/session/{finished}/commit", json={"global": 2.0})
+
+        listed = client.get("/api/assessments").json()
+        assert [row["session_id"] for row in listed] == [finished]
+        assert abandoned not in [row["session_id"] for row in listed]
+
+    def test_history_says_hit_or_miss_and_keeps_no_score(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        client, _ = assessment
+        session = open_session(client)
+        client.post(f"/api/session/{session}/message", json={"text": "Hello."})
+        actual = client.post(f"/api/session/{session}/commit", json={"global": 0.0}).json()
+
+        row = client.get("/api/assessments").json()[0]
+        assert row["hit"] is (actual["actual"]["name"] == "healthy")
+        assert row["ratings"]["global"] == 0.0
+        # A mirror, not a mark: nothing that adds up.
+        assert not {"score", "total", "streak", "percent", "grade"} & set(row)

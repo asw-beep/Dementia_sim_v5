@@ -1,0 +1,91 @@
+# CDR 1 — mild dementia. Clinical ground truth:
+# docs/disease_profiles/CDR1.md. It is the step up from cdr05.yaml, and the
+# numbers here are set *relative to that file*: the deficits are the same
+# mechanisms, turned up until they are no longer "questionable" but plainly
+# there. The one-line test for CDR 1 is the mirror of CDR 0.5's — a caregiver
+# should not have to work for fifteen minutes to doubt her; the trouble should
+# be obvious in a few exchanges, while she is still, unmistakably, the same woman.
+#
+# Only the domains that already have a mechanism are expressible here. The
+# six-domain clinical picture — judgment, community affairs, home and hobbies,
+# personal care — lives in CDR1.md; the profile schema gains a field for each
+# only in the sprint that gives it a consumer (see impairment/profile.py). A
+# parameter nothing reads would be a lie in a config file, so they are absent,
+# not zeroed.
+#
+# These values are authored ahead of Sprint 2B and are provisional: like CDR 0.5,
+# they are meant to be corrected against a real clinical drive, not trusted on
+# paper. The structure is right; the exact thresholds are a first estimate.
+
+name: cdr1
+label: "CDR 1 — mild dementia"
+
+recall:
+  # Recent memory loss reaches further back at CDR 1 than at 0.5, so the window
+  # that counts as "recent" — and is therefore gateable — is wider. Her authored
+  # life is still never in here, at any age; only what she acquired in
+  # conversation, and the everyday details she improvised, can be gated.
+  recent_window_days: 180
+
+  # Reach = encoding + cue_weight × cue, exactly as at CDR 0.5. What changes is
+  # where the rungs sit and how much a cue can lift her:
+  #
+  #   reach < withhold_below → does not come to mind
+  #   reach < gist_below     → the shape of it, without the particulars
+  #   otherwise              → recalled, but hedged — never crisp
+  #
+  # The thresholds rise and the cue helps less, so the *whole distribution*
+  # shifts down a rung from CDR 0.5. A direct, perfectly-cued question now draws
+  # a blank ~20% of the time and comes back as gist most of the rest — where at
+  # CDR 0.5 a direct question was never withheld and usually kept its particulars.
+  # A vague question is withheld about half the time. This is the "clear
+  # impairment in recent memory" the caregiver is meant to see early, not hunt
+  # for. Asking again, squarely, still rescues something — cueing is preserved in
+  # CDR 1 — but it rescues the gist, not the detail.
+  withhold_below: 0.65
+  gist_below: 1.10
+  cue_weight: 0.45
+
+orientation:
+  # Place and person are still intact in a familiar or structured setting — she
+  # knows where she is and who she is talking to — so time stays the only degraded
+  # axis (poor orientation to place is CDR 2, not CDR 1). What changes from CDR 0.5
+  # is the *degree*: "uncertain" was a wavering that still landed on the right day,
+  # because the true weekday was handed to her. "mistaken" withholds the exact
+  # weekday and date from the clock she is given, so she can genuinely be wrong
+  # about the day and does not tidily self-correct to an answer she no longer has —
+  # the "occasionally wrong" orientation the roadmap names for 2B. Nothing false is
+  # injected and orientation is stored nowhere, so no memory is touched.
+  day_and_date: mistaken
+
+speech:
+  # Clinically "often" now, not "occasionally" — word-finding is a noticeable
+  # feature of her speech rather than an intermittent one. Raised from 0.12 to
+  # ~0.30: frequent pauses and circumlocution, still short of aphasia.
+  word_finding_probability: 0.30
+  # A message with more parts than this may overrun her working memory…
+  long_question_clauses: 2
+  # …and at CDR 1 it usually does: she loses the thread of a long or multi-part
+  # question far more often than she copes with it. Raised from 0.35 to 0.65.
+  long_question_probability: 0.65
+
+# Insight is fading but not gone. At CDR 0.5 she reliably knows she has become
+# forgetful and says so; at CDR 1 that awareness is partial and inconsistent —
+# she still has enough of it that the persona remains someone reacting to her own
+# decline, not someone oblivious to it. The flag is a boolean and cannot express
+# "partial", so it stays true: switching it off is CDR 2's loss of insight, a
+# later severity, and turning it off here to seem "more impaired" would overshoot
+# the stage. How often she actually voices it is carried by the prompt, not this
+# flag.
+insight: true
+
+# The delayed-recall probe frays harder at CDR 1. Immediate registration is only
+# mildly affected, so the current exchange is still held whole — but the crisp
+# span narrows to a single turn, and the fade span is shorter, so words slip out
+# of a recent exchange faster and more of them are gone by the time she is probed.
+# Where CDR 0.5 gives "2 of 3, or 1 of 3 with a cue", CDR 1 gives "1 of 3, or a
+# blank rescued in part by a cue" — a heavier, but not total, delayed-recall
+# deficit. Total loss of a recent list with no cue-response would be later still.
+hold:
+  crisp_turns: 1
+  fade_turns: 5

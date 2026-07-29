@@ -18,13 +18,27 @@ from typing import Any
 
 import pytest
 
+from personasim.config import Settings
 from personasim.models import Persona, RelationshipMemory, SemanticMemory
 from personasim.persona import build_persona, read_seed_file
 from personasim.persona.checklist import ESSENTIAL, FACTS, RELATIONS, keywords_for
 from personasim.persona.gaps import find_gaps, report
 from personasim.persona.interview import Draft, Person, interview, render, to_seed, validate
+from personasim.retrieval import PersonaMemorySource, RetrievalEngine
 
-SEED_FILE = Path(__file__).resolve().parents[1] / "data" / "personas" / "elena.yaml"
+PERSONA_DIR = Path(__file__).resolve().parents[1] / "data" / "personas"
+SEED_FILE = PERSONA_DIR / "elena.yaml"
+
+# Every authored persona, discovered rather than listed. A new seed file is covered
+# by `TestEveryAuthoredPersonaHolds` the moment it lands in the directory.
+SEED_FILES = sorted(PERSONA_DIR.glob("*.yaml"))
+
+
+@pytest.fixture(params=SEED_FILES, ids=lambda path: path.stem)
+def seed_file(request: pytest.FixtureRequest) -> Path:
+    seed: Path = request.param
+    return seed
+
 
 # The answers a real author would give, in the order the interview asks for them.
 ANSWERS = [
@@ -101,6 +115,39 @@ class TestTheReferencePersonaPassesHerOwnChecklist:
         gaps = find_gaps(build_persona(read_seed_file(SEED_FILE)))
 
         assert gaps.is_clean, report(gaps)
+
+
+class TestEveryAuthoredPersonaHolds:
+    """The checks above run against Elena by name. These run against whatever is on
+    disk, so a persona added later is covered the day it is written rather than the
+    day somebody remembers to add a test for it."""
+
+    def test_every_seed_file_loads(self, seed_file: Path) -> None:
+        assert build_persona(read_seed_file(seed_file)).memories
+
+    def test_every_seed_file_has_no_gaps(self, seed_file: Path) -> None:
+        gaps = find_gaps(build_persona(read_seed_file(seed_file)))
+
+        assert gaps.is_clean, f"{seed_file.name}:\n{report(gaps)}"
+
+    def test_a_living_is_a_trade_and_not_an_address(self, seed_file: Path) -> None:
+        """ "What do you do for a living?" must reach the occupation, not the house.
+
+        Found while authoring the second persona. `live`, `lives` and `living` look
+        like three forms of one word, so `living` went into the residence keywords —
+        and because retrieval matches literally, the house then outranked the job on
+        the man's own occupation. Elena's file omits `living` there; nothing said why,
+        and nothing would have caught it. This does.
+        """
+        persona = build_persona(read_seed_file(seed_file))
+        engine = RetrievalEngine(PersonaMemorySource(persona), Settings())
+
+        ranked = engine.retrieve("What do you do for a living?").retrieved
+        assert ranked, seed_file.name
+        top = persona.by_id(ranked[0].memory_id)
+
+        assert isinstance(top, SemanticMemory)
+        assert top.attribute == "occupation", f"{seed_file.name} answered with {top.attribute!r}"
 
 
 class TestTheCheckerFindsWhatWasSkipped:

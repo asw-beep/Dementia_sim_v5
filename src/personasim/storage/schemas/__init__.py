@@ -1,6 +1,7 @@
 """ORM table definitions."""
 
 from personasim.storage.schemas.tables import (
+    AssessmentRow,
     Base,
     MemoryLinkRow,
     MemoryRow,
@@ -10,6 +11,7 @@ from personasim.storage.schemas.tables import (
 )
 
 __all__ = [
+    "AssessmentRow",
     "Base",
     "MemoryLinkRow",
     "MemoryRow",

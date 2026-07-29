@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     # produce a person, a death, or a life event: see `conversation/improvise.py`.
     improvise_everyday: bool = True
 
+    # --- Cognitive profile --------------------------------------------------
+    # Which severity the persona is run at. Unset means healthy — the Phase 1
+    # persona exactly, with no impairment layer constructed at all. A path here
+    # (e.g. data/profiles/cdr05.yaml) loads a profile, and is how `persona serve`
+    # and `./run start` select one without a code change:
+    #
+    #     PERSONA_PROFILE=data/profiles/cdr05.yaml ./run start
+    #
+    # `persona chat --profile` overrides it for a single conversation.
+    profile: Path | None = None
+
     # --- Diagnostics -------------------------------------------------------
     debug: bool = False
     log_traces: bool = True

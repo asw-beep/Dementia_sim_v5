@@ -2,11 +2,13 @@
 #
 # Bring the persona up, and take it back down.
 #
-#   ./run start     seed if needed, check the model, serve
-#   ./run kill      stop the server
-#   ./run status    is anything up, and can it reach the model
-#   ./run logs      follow the server log
-#   ./run reset     wipe the database and re-seed (she forgets everything)
+#   ./run start           seed if needed, check the model, serve — healthy
+#                         (the model check waits 10s, then serves without it anyway)
+#   ./run start cdr05     the same, at CDR 0.5 (any name in data/profiles/)
+#   ./run kill            stop the server
+#   ./run status          is anything up, can it reach the model, which severity
+#   ./run logs            follow the server log
+#   ./run reset           wipe the database and re-seed (she forgets everything)
 #
 # Everything it starts, it can stop. There is one PID file and one log file, and
 # `kill` uses the PID file rather than pattern-matching the process table, so it
@@ -17,8 +19,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PORT="${PERSONA_PORT:-8000}"
-SEED="data/personas/elena.yaml"
-PERSONA="elena-marsh"
+# Bind address. Defaults to all interfaces (0.0.0.0) so the persona is reachable from
+# other devices on the LAN. THIS APP HAS NO AUTHENTICATION: anyone who can reach this
+# host on this port can talk to the persona and read everything she has been told.
+# Only run this on a network you trust. Set PERSONA_HOST=127.0.0.1 for loopback only.
+HOST="${PERSONA_HOST:-0.0.0.0}"
+# Every authored persona, not a named one. This used to be a single hardcoded path,
+# which was true for exactly as long as there was one seed file — a second persona
+# would have appeared nowhere, because `start` seeds and the gallery only lists what
+# the database already holds. Seeding is idempotent by memory id, so running the whole
+# directory every time costs nothing and cannot miss a new file.
+SEEDS="data/personas"
 RUNTIME=".run"
 PIDFILE="$RUNTIME/server.pid"
 LOGFILE="$RUNTIME/server.log"
@@ -28,6 +39,9 @@ mkdir -p "$RUNTIME"
 say()  { printf '  %s\n' "$*"; }
 fail() { printf '\nerror: %s\n' "$*" >&2; exit 1; }
 
+# This host's primary LAN address, for the "reach it from another device" URL.
+lan_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
+
 running() {
   [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
 }
@@ -35,8 +49,16 @@ running() {
 # The model lives somewhere else — a remote GPU box, per .env — and it is the one
 # part of this that can simply be absent. Better to say so now than to let the
 # first message fail in the browser.
+#
+# Bounded, because "absent" and "slow to say so" look identical from here: a host
+# that is off answers with a TCP timeout measured in minutes, and the check would
+# sit there long after the answer was obvious. Ten seconds is far more than a
+# reachable Ollama needs to list its models. `-k` because the timeout is sent to
+# `uv`, and a child that ignores TERM should not outlive it.
+MODEL_TIMEOUT="${PERSONA_MODEL_TIMEOUT:-10}"
+
 model_reachable() {
-  uv run python - <<'PY' 2>/dev/null
+  timeout -k 2 "${MODEL_TIMEOUT}s" uv run python - <<'PY' 2>/dev/null
 from personasim.config import get_settings
 from personasim.llm import build_client
 settings = get_settings()
@@ -49,40 +71,79 @@ PY
 start() {
   if running; then
     say "already running: http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    # Single-quoted: in double quotes the backticks are command substitution, so
+    # this hint used to *run* `./run kill` — printing the advice took the server
+    # down, and then said it was already up.
+    say '  (./run kill first if you want to change profile)'
     exit 0
+  fi
+
+  # `./run start cdr05` → data/profiles/cdr05.yaml. No argument is healthy, which
+  # is the Phase 1 persona exactly: no impairment layer is constructed at all.
+  # `./run start assess` is blind assessment mode: a hidden severity is drawn per
+  # session (healthy included) and never printed — the label is the answer key.
+  local profile_arg=()
+  if [[ "${1:-}" == "assess" ]]; then
+    profile_arg=(--assessment)
+  elif [[ -n "${1:-}" ]]; then
+    PROFILE_FILE="data/profiles/${1}.yaml"
+    [[ -f "$PROFILE_FILE" ]] || fail "no profile '${1}'. Available: assess $(ls data/profiles/*.yaml | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
+    profile_arg=(--profile "$PROFILE_FILE")
   fi
 
   printf '\nStarting the persona simulator.\n\n'
 
-  say "checking the model…"
+  # A missing model is a warning, not a stop. The UI, the gallery, the assessment
+  # flow and the reveal are all served without ever asking the model anything — only
+  # a persona's *reply* needs it. Refusing to start meant the front end could not be
+  # worked on at all whenever the GPU box was off, which is the wrong trade: let it
+  # come up, and let the turn that actually needs a model be the thing that fails.
+  say "checking the model… (${MODEL_TIMEOUT}s)"
   if model=$(model_reachable); then
     say "  ok — $model"
   else
-    fail "cannot reach the model. Is Ollama up on the host in .env?
-       Check with:  uv run python -c 'from personasim.config import get_settings as g; print(g().llm_host)'"
+    say "  ⚠ no model — starting anyway."
+    say "    The site will load; anything that asks her to speak will error."
+    say "    Is Ollama up on the host in .env?  uv run python -c 'from personasim.config import get_settings as g; print(g().llm_host)'"
   fi
 
   # Idempotent by memory id, so re-seeding an existing database is a no-op. It will
   # warn — loudly — if the seed file has been edited since, because a silent skip is
   # how an edited persona rots in a database.
-  say "seeding $PERSONA…"
-  uv run persona seed "$SEED" 2>&1 | sed 's/^/    /'
+  say "seeding personas…"
+  for seed in "$SEEDS"/*.yaml; do
+    uv run persona seed "$seed" 2>&1 | sed 's/^/    /'
+  done
 
-  say "serving…"
-  # Loopback on purpose. This app has no authentication; binding it to 0.0.0.0 would
-  # hand Elena, and everything she has been told, to anything on the network.
+  say "serving on $HOST…"
+  # Bind address is $HOST (see the top of the file). Default is 0.0.0.0 so other
+  # devices on the LAN can reach it — and since this app has NO authentication, that
+  # hands Elena, and everything she has been told, to anything that can route to this
+  # host. Trusted networks only; PERSONA_HOST=127.0.0.1 puts it back on loopback.
   #
   # `setsid` gives the server its own process group. `uv run` spawns the real server
   # as a *child*, and killing only the parent leaves an orphan holding the port —
   # today `uv` happens to forward the signal, but "happens to" is not a thing to
   # build a shutdown on. The group id is what we record, so `kill` can take down
   # everything `start` brought up, and nothing else.
-  setsid nohup uv run persona serve --port "$PORT" >"$LOGFILE" 2>&1 &
+  setsid nohup uv run persona serve --host "$HOST" --port "$PORT" "${profile_arg[@]}" >"$LOGFILE" 2>&1 &
   echo $! >"$PIDFILE"
 
   for _ in $(seq 30); do
     if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/personas" 2>/dev/null; then
-      printf '\n  ready → http://127.0.0.1:%s\n\n' "$PORT"
+      # Which Elena is actually up. Asked of the server, not of the argument we
+      # passed it: a tester driving what they believe is CDR 0.5 while talking to
+      # the healthy persona will conclude the impairment layer does not work.
+      label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
+        | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
+      say "profile: ${label:-healthy}"
+      printf '\n  ready → http://127.0.0.1:%s\n' "$PORT"
+      if [[ "$HOST" == "0.0.0.0" ]]; then
+        ip=$(lan_ip)
+        [[ -n "$ip" ]] && printf '  on the network → http://%s:%s  (reachable from other devices)\n' "$ip" "$PORT"
+        printf '  ⚠ no authentication — anyone on this network can talk to her. Trusted networks only.\n'
+      fi
+      printf '\n'
       exit 0
     fi
     running || { rm -f "$PIDFILE"; fail "the server died on startup. Log:\n$(tail -20 "$LOGFILE")"; }
@@ -130,6 +191,13 @@ stop() {
 status() {
   if running; then
     say "server:  up   → http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
+    if [[ "$HOST" == "0.0.0.0" ]]; then
+      ip=$(lan_ip)
+      [[ -n "$ip" ]] && say "network: http://$ip:$PORT  (no auth — trusted networks only)"
+    fi
+    label=$(curl -fsS "http://127.0.0.1:$PORT/api/profile" 2>/dev/null \
+      | sed -n 's/.*"label":"\([^"]*\)".*/\1/p')
+    say "profile: ${label:-healthy}"
   else
     say "server:  down"
   fi
@@ -137,7 +205,7 @@ status() {
   if model=$(model_reachable); then
     say "model:   ok   → $model"
   else
-    say "model:   unreachable"
+    say "model:   unreachable (gave it ${MODEL_TIMEOUT}s)"
   fi
 
   if [[ -f data/persona.db ]]; then
@@ -146,18 +214,22 @@ from personasim.storage import Database, PersonaRepository
 from personasim.config import get_settings
 db = Database.from_path(get_settings().database_path)
 with db.session() as session:
-    persona = PersonaRepository(session).load("elena-marsh")
-print(len(persona.memories) if persona else 0, end="")
+    repo = PersonaRepository(session)
+    counts = []
+    for persona_id, identity in repo.list_identities():
+        persona = repo.load(persona_id)
+        counts.append(f"{identity.name} {len(persona.memories) if persona else 0}")
+print(", ".join(counts) or "0", end="")
 PY
 )
-    say "memory:  $memories memories in data/persona.db"
+    say "memory:  $memories — in data/persona.db"
   else
     say "memory:  not seeded"
   fi
 }
 
 case "${1:-}" in
-  start)  start ;;
+  start)  start "${2:-}" ;;
   kill|stop) stop ;;
   status) status ;;
   logs)   tail -f "$LOGFILE" ;;
@@ -166,15 +238,21 @@ case "${1:-}" in
     stop
     rm -f data/persona.db
     say "database wiped."
-    uv run persona seed "$SEED" 2>&1 | sed 's/^/  /'
+    for seed in "$SEEDS"/*.yaml; do
+      uv run persona seed "$seed" 2>&1 | sed 's/^/  /'
+    done
     ;;
   *)
-    printf 'usage: ./run {start|kill|status|logs|reset}\n\n'
-    printf '  start   seed if needed, check the model, serve on :%s\n' "$PORT"
-    printf '  kill    stop the server\n'
-    printf '  status  what is up, and whether the model answers\n'
-    printf '  logs    follow the server log\n'
-    printf '  reset   wipe the database and re-seed (she forgets everything)\n'
+    printf 'usage: ./run {start [profile|assess]|kill|status|logs|reset}\n\n'
+    printf '  start          seed if needed, check the model, serve on :%s (healthy)\n' "$PORT"
+  printf '                 the model check is capped at %ss (PERSONA_MODEL_TIMEOUT); it serves either way\n' "$MODEL_TIMEOUT"
+    printf '  start cdr05    the same, at CDR 0.5\n'
+    printf '  start assess   blind assessment: hidden severity per session, rate it, reveal\n'
+    printf '  kill           stop the server\n'
+    printf '  status         what is up, whether the model answers, which severity\n'
+    printf '  logs           follow the server log\n'
+    printf '  reset          wipe the database and re-seed (she forgets everything)\n\n'
+    printf 'profiles: %s\n' "$(ls data/profiles/*.yaml 2>/dev/null | xargs -n1 basename | sed 's/\.yaml//' | tr '\n' ' ')"
     exit 1
     ;;
 esac

@@ -1,0 +1,28 @@
+# The profile that changes nothing — and must always change nothing.
+#
+# Healthy is not a special case in code; it is a profile whose parameters gate
+# nothing by construction. A recall window of zero days makes no memory "recent",
+# a probability of zero never fires, confident orientation leaves the clock
+# exactly as Phase 1 tells it, and an unset working-memory window leaves the
+# configured one alone. With this profile loaded, the persona is byte-for-byte
+# the Phase 1 persona — the regression suite proves it, and that proof is what
+# makes the impairment layer a wrapper rather than an edit.
+
+name: healthy
+label: "CDR 0"
+
+recall:
+  recent_window_days: 0
+  withhold_below: 0.0
+  gist_below: 0.0
+  cue_weight: 0.0
+
+orientation:
+  day_and_date: confident
+
+speech:
+  word_finding_probability: 0.0
+  long_question_clauses: 0
+  long_question_probability: 0.0
+
+insight: false

@@ -1,0 +1,75 @@
+# CDR 0.5 — very mild / questionable. Clinical ground truth:
+# docs/disease_profiles/CDR05.md. Design: docs/design/sprint1_cdr05.md.
+#
+# Tuned against the first clinical review, which rated the previous numbers at
+# "CDR 0 to 0.25 — not 0.5": remote memory, personality and insight were right,
+# but recent memory was *nearly perfect* and there was no word-finding at all.
+# The complaint without the deficit. Both fixes were structural, not numerical
+# (see recall.py) — these values then set how often each one shows.
+
+name: cdr05
+label: "CDR 0.5 — very mild, questionable"
+
+recall:
+  # Anything she acquired in conversation inside this window is "recent": facts
+  # the caregiver disclosed, and the everyday details she improvised — her
+  # breakfast, her sleep, what she has been doing today. Her authored life is
+  # never in here, at any age.
+  recent_window_days: 90
+
+  # Reach = encoding + cue_weight × cue, where encoding is a hash in [0,1) fixed
+  # per (session, memory), and cue is how squarely the question aimed at it.
+  #
+  #   reach < withhold_below → does not come to mind
+  #   reach < gist_below     → the shape of it, without the particulars
+  #   otherwise              → recalled, but hedged — never crisp
+  #
+  # With these numbers: a direct, perfectly-cued question ("what did you have for
+  # breakfast?") loses the particulars ~30% of the time and is hedged the rest —
+  # matching the reviewer's "20–30% chance of omitting a detail from the last
+  # day", and never answered like a woman reading off a card. A vague question
+  # ("how have you been?") draws a blank ~28% of the time and gets an outline
+  # ~40%. Asking again, squarely, rescues it — which is gentle cueing, and it is
+  # the mechanism itself rather than an imitation of one.
+  withhold_below: 0.45
+  gist_below: 0.85
+  cue_weight: 0.55
+
+orientation:
+  # She knows the month, the year, the place and the person. The weekday and the
+  # exact date have gone slippery — visible only when someone asks.
+  day_and_date: uncertain
+
+speech:
+  # Clinically 5–10% of replies. A fixed cadence read as a metronome, and — more
+  # to the point — the old soft instruction produced *zero* hesitation in twenty
+  # turns, so the fragment itself is now imperative rather than suggestive.
+  word_finding_probability: 0.12
+  # A message with more parts than this may overrun her…
+  long_question_clauses: 2
+  # …but at this severity she usually copes. Occasionally she does not.
+  long_question_probability: 0.35
+
+# Preserved insight is a clinical feature of CDR 0.5, not a leak: she knows she
+# has become a little forgetful, and says so at the moment a memory fails her.
+# Do not switch this off to make her seem "more impaired" — losing insight is a
+# later severity.
+insight: true
+
+# The delayed-recall probe — "remember these three words… now, what were they?" —
+# is the most diagnostic question in the CDR interview. Under the healthy window of
+# 12 turns it was *free*: the words sat verbatim in the prompt six turns later and
+# she read them back perfectly. A hard short window went too far the other way —
+# once the turn scrolled out she had *nothing*, "I don't remember any words", which
+# is a heavier deficit than CDR 0.5. Immediate registration is intact here; it is
+# retention across a delay that frays, and it frays *partially* — 2 of 3, or 1 of 3
+# with a cue.
+#
+# So the transcript fades rather than truncates (see impairment/hold.py). The last
+# two exchanges are held whole — registration and the current thread are safe.
+# Older exchanges lose words one at a time, more the further back, over the next
+# eight turns; a three-word list a few turns old comes back in part, and the
+# caregiver's cue is a fresh, unfaded turn that helps her land the rest.
+hold:
+  crisp_turns: 2
+  fade_turns: 8

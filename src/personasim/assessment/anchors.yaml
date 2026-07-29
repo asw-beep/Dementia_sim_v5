@@ -1,0 +1,88 @@
+# The CDR's descriptive anchors: what each stage looks like, per domain.
+#
+# Condensed from docs/disease_profiles/CDR*.md, the clinical ground truth the
+# profiles themselves were built against. One line per domain per rung — the doc is
+# the long form; this is what fits beside a rating while someone is making one.
+#
+# Data, not code, for the same reason severity is: the anchors are clinical
+# description, and description belongs in a file a clinician can correct without
+# touching Python. It also keeps the vocabulary of impairment out of the healthy
+# core, which tests/test_invariants.py enforces and which is not a technicality —
+# the engine must stay unable to name a stage.
+#
+# One source, two readers: the worksheet shows these while the trainee rates, and
+# the coach quotes them back afterwards to say what the stage they chose would have
+# looked like. They were briefly written twice — once here, once in app.js — which
+# is how two descriptions of the same clinical fact drift apart.
+#
+# `profile_rungs` says which profile stands at which rung. The engine never reads
+# it: nothing here changes behaviour by stage. The *reader* needs it, because "you
+# rated one rung too high" is a claim about the order of the scale.
+
+rungs:
+- 0.0
+- 0.5
+- 1.0
+- 2.0
+- 3.0
+profile_rungs:
+  healthy: 0.0
+  cdr05: 0.5
+  cdr1: 1.0
+  cdr2: 2.0
+  cdr3: 3.0
+domains:
+- key: memory
+  label: Memory
+  note: ''
+- key: orientation
+  label: Orientation
+  note: ''
+- key: judgment
+  label: Judgment
+  note: ''
+- key: language
+  label: Language
+  note: ''
+- key: global
+  label: Overall CDR
+  note: ''
+anchors:
+  memory:
+    '0.0': No memory loss, or slight inconsistent forgetfulness.
+    '0.5': Consistent slight forgetfulness; the shape of a recent event survives, its details
+      do not.
+    '1.0': Moderate loss, worse for recent events; important details go, questions repeat.
+    '2.0': Recent material is not retained — conversations forgotten soon after, order and
+      timing confused.
+    '3.0': Only fragments remain; new information is lost almost immediately.
+  orientation:
+    '0.0': Fully oriented.
+    '0.5': Oriented apart from slight trouble with time — unsure of the date or weekday, and
+      corrects herself.
+    '1.0': Moderate difficulty with time relationships; still oriented to place during the
+      interview.
+    '2.0': Wrong about date, weekday and recent timing; usually knows the setting, but not
+      always.
+    '3.0': Orientation largely lost — time and often place gone; person known only in fragments.
+  judgment:
+    '0.0': Solves everyday problems well; judgment sound.
+    '0.5': Everyday judgment intact; only long or multi-part questions cost visible effort.
+    '1.0': Complex problems are difficult and practical planning unreliable; social judgment
+      usually holds.
+    '2.0': Overwhelmed by planning or sequencing; needs step-by-step prompting, judgment clearly
+      impaired.
+    '3.0': Cannot compare options or solve problems; dependent on others for nearly every
+      decision.
+  language:
+    '0.0': Fluent; no word-finding trouble.
+    '0.5': Fluent overall, with an occasional pause or a way round a missing word.
+    '1.0': Obvious pauses for retrieval and vague wording, still comfortably fluent.
+    '2.0': Frequent pauses and broad substitutes — “that thing”, “the place”; effort is audible.
+    '3.0': Short phrases, fillers and broken sentences; even familiar things are hard to name.
+  global:
+    '0.0': Healthy — nothing impaired to observe.
+    '0.5': Questionable dementia — subtle, and takes a sustained 15-20 minutes to see.
+    '1.0': Mild dementia — deficits are obvious and interfere with everyday life.
+    '2.0': Moderate dementia — sustained impairment, clear within a short interview.
+    '3.0': Severe dementia — the severity is apparent within moments.

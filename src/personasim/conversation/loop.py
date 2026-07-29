@@ -22,6 +22,11 @@ import structlog
 
 from personasim.config import Settings
 from personasim.conversation.improvise import everyday_for, improvise
+from personasim.impairment import HEALTHY, CognitiveProfile, ImpairedRetrievalEngine
+from personasim.impairment.comprehension import retain_question
+from personasim.impairment.disfluency import inject_word_finding
+from personasim.impairment.hold import fade_transcript
+from personasim.impairment.voice import render_now_impaired, voice_notes
 from personasim.llm.base import LLMClient
 from personasim.llm.context_builder import build_messages
 from personasim.memory.formation import ConsolidationPlan, consolidate, form_memories
@@ -81,24 +86,43 @@ class Conversation:
         llm: LLMClient,
         database: Database,
         settings: Settings,
+        profile: CognitiveProfile | None = None,
     ) -> None:
         self._persona = persona
         self._llm = llm
         self._database = database
         self._settings = settings
+        self._profile = profile or HEALTHY
 
         # Retrieval runs against the persona held in memory, and formation appends
         # to it. A fact disclosed on turn two is therefore retrievable on turn
         # three, without a database round trip and without a second source of truth.
         self._source = PersonaMemorySource(persona)
-        self._engine = RetrievalEngine(self._source, settings)
-        self._working = WorkingMemory(persona.id, capacity=settings.working_memory_turns)
+
+        # How much of the live conversation she can hold. The healthy window is a
+        # plain capacity bound; an impaired profile widens it to make room for the
+        # fade (`impairment.hold`) that frays older turns word by word, which is
+        # what turns a delayed-recall probe from free — three words read verbatim
+        # out of the prompt — into the graded, partial thing a clinician looks for.
+        capacity = self._profile.hold.capacity or settings.working_memory_turns
+        self._working = WorkingMemory(persona.id, capacity=capacity)
+        self._turn_number = 0
 
         # Held here, not read back from working memory. `discard()` starts a fresh
         # session — which is right for the RAM and wrong for us: a conversation
         # that has ended must still be able to say which session it *was*, or the
         # session it wrote to the log becomes unfindable the moment it closes.
         self._session_id = self._working.session_id
+
+        # The impairment layer wraps retrieval; it never replaces it. Under the
+        # healthy profile the engine is the bare Phase 1 engine — not a wrapper
+        # configured to do nothing, but no wrapper at all.
+        engine = RetrievalEngine(self._source, settings)
+        self._engine: RetrievalEngine | ImpairedRetrievalEngine = (
+            ImpairedRetrievalEngine(engine, self._profile, self._source, self._session_id)
+            if self._profile.gates_recall or self._profile.degrades_place
+            else engine
+        )
 
         self._started = False
         self._ended = False
@@ -161,6 +185,7 @@ class Conversation:
         if self._ended:
             raise ConversationError("this conversation has ended")
 
+        self._turn_number += 1
         user_message = Message(role=Role.USER, content=text)
         self._working.observe_user_message(user_message)
 
@@ -179,16 +204,64 @@ class Conversation:
         self._working.set_topic(_topic_of(trace))
 
         # The windowed transcript, which excludes the message being answered — it
-        # is the last thing in the prompt, not part of the history.
+        # is the last thing in the prompt, not part of the history. Under an
+        # impaired hold, older turns are faded word by word before they reach the
+        # prompt; the note explains, in the trace, a delayed-recall failure that
+        # otherwise has no retrieved memory to point at. Under the healthy profile
+        # the fade is a no-op and every hook resolves to None/"", so the prompt is
+        # byte-for-byte the Phase 1 prompt.
+        history, fade_note = fade_transcript(
+            self._working.recent_turns(),
+            self._working.turns_seen,
+            self._profile,
+            self._session_id,
+        )
+        if fade_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {fade_note}"})
+
+        # A multi-part question overruns her working memory: only the tail registers,
+        # so the model is handed only the last parts and cannot answer the rest —
+        # there is nothing there to answer. Retrieval (above) and formation (below)
+        # still see the *full* message, so a fact disclosed in a dropped clause is
+        # remembered even though it is not answered this turn. Healthy trims nothing.
+        heard, overrun_note = retain_question(
+            text, self._profile, session_id=self._session_id, turn=self._turn_number
+        )
+        if overrun_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {overrun_note}"})
+
+        # The frame she is handed instead of the true clock, and the note saying what
+        # it withheld. The note is recorded whether or not she was asked the day:
+        # what the profile took away is a fact about this turn, and only the trace
+        # can say so — nothing downstream can reconstruct it from the reply.
+        now_text, orientation_note = render_now_impaired(self._profile)
+        if orientation_note is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {orientation_note}"})
+
         reply_text = self._llm.generate(
             build_messages(
                 self._persona.identity,
                 trace,
                 self._source,
-                text,
-                history=self._working.transcript(),
+                heard,
+                history=history,
+                now_text=now_text,
+                voice_notes=voice_notes(
+                    self._profile,
+                    trace=trace,
+                    faded=fade_note is not None,
+                ),
             )
         )
+
+        # Word-finding is performed on the reply, not asked of the model — the prompt
+        # seam could not deliver it. One groping pause, on one plain noun, hashed per
+        # turn so it fires intermittently and replays identically. Healthy is a no-op.
+        reply_text, groped = inject_word_finding(
+            reply_text, self._profile, session_id=self._session_id, turn=self._turn_number
+        )
+        if groped is not None:
+            trace = trace.model_copy(update={"reason": f"{trace.reason}; {groped}"})
 
         persona_message = Message(role=Role.PERSONA, content=reply_text)
         turn = self._working.complete_turn(persona_message, trace)
@@ -207,15 +280,20 @@ class Conversation:
 
         Two guards, and they are the whole safety argument:
 
-        `trace.is_empty` — if retrieval found *anything*, this does not run, so an
-        improvised detail can never contradict or overwrite an authored one.
+        `trace.memory_is_silent` — if retrieval found *anything*, this does not run,
+        so an improvised detail can never contradict or overwrite an authored one.
+        Silent, not merely empty: a memory a recall gate withheld still *exists*,
+        and a turn that failed to reach it must produce "it doesn't come to mind" —
+        never a permanent invention written over the top of a real fact. That would
+        be manufacturing a memory she actually has, which is the one thing the
+        impairment layer must never cause.
 
         `everyday_for` — the whitelist is exhaustive. There is no path from here to a
         person, a death, a job, or a life event. Asked about a sister she does not
         have, she still says it does not come to mind, because `sister` is not an
         everyday attribute and never will be.
         """
-        if not self._settings.improvise_everyday or not trace.is_empty:
+        if not self._settings.improvise_everyday or not trace.memory_is_silent:
             return None
         if trace.intent is RetrievalIntent.SMALL_TALK or scope_of(text) is Scope.CAREGIVER:
             return None

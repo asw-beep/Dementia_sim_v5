@@ -157,7 +157,7 @@ def build_memory_context(trace: MemoryTrace, source: MemorySource) -> str:
         lines.append("")
         lines.append(heading)
         lines.extend(
-            f"- {_render(memories[item.memory_id], roles)}"
+            f"- {_render_direct(item, memories[item.memory_id], roles)}"
             for item in direct
             if _heading_for(memories[item.memory_id]) == heading
         )
@@ -260,14 +260,20 @@ def render_speaker(name: str) -> str:
     cartographer" — reading the caregiver's "I" as her own while holding the
     caregiver's job in the context she had been handed.
 
-    Note what this does *not* say. Told she was speaking to "your caregiver, the
-    person who looks after you", the persona inverted the roles outright: she
-    announced "I am your caregiver", gave away her own home as the caregiver's, and
-    claimed the caregiver's city as hers. A healthy woman of thirty-eight does not
-    have someone who looks after her, and handed that contradiction the model
-    resolved it by swapping the two of them. `caregiver` is the right word for the
-    domain and the wrong word to put in her mouth. She is simply told who is
-    speaking, in terms that do not fight her identity.
+    Note what this does *not* say — and why the wording is load-bearing. Told she was
+    speaking to "your caregiver, the person who looks after you", an *early, healthy*
+    persona inverted the roles outright: she announced "I am your caregiver", gave
+    away her own home as the caregiver's, and claimed the caregiver's city as hers.
+    The prompt still says only that her memories *call them* 'my caregiver', never
+    that they look after her — but the reason has moved. From Phase 2 on, every
+    persona is a patient, so being looked after is no longer a contradiction and she
+    may freely acknowledge a caregiver (the drive's "you are my caregiver" is correct,
+    not a leak). What the neutral phrasing still buys is the thing that actually broke:
+    it does not invite her to *inhabit* the caregiver's side of the "I/you" split. The
+    guarantee the prompt enforces is directional — she must never speak as the
+    caregiver, claim their home, or hand over her own — and that holds for a patient
+    exactly as it did for a healthy woman. So the wording is unchanged; only the
+    rationale is now "prevent role inversion", not "she has no one who looks after her".
     """
     return (
         f"You are speaking with someone. They are the only other person here, and "
@@ -331,17 +337,30 @@ def build_messages(
     source: MemorySource,
     user_message: str,
     history: Sequence[Message] = (),
+    *,
+    now_text: str | None = None,
+    voice_notes: str = "",
 ) -> list[ChatMessage]:
     """The full prompt for one turn: who you are, who you are talking to, what you
     recall, and what was said.
 
     `history` is the windowed transcript from working memory, and excludes the
     message being answered.
+
+    `now_text` and `voice_notes` are the impairment layer's two hooks into the
+    prompt: a replacement for `render_now()` when orientation is degraded, and
+    per-turn speech fragments. Both default to nothing, and with the defaults the
+    prompt is byte-for-byte the Phase 1 prompt.
     """
+    memory_context = build_memory_context(trace, source)
+    if voice_notes:
+        memory_context = f"{memory_context}\n\n{voice_notes}"
+
+    now_block = now_text if now_text is not None else render_now()
     system = build_system_prompt(
         identity,
-        build_memory_context(trace, source),
-        cast=f"{render_now()}\n\n{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
+        memory_context,
+        cast=f"{now_block}\n\n{render_cast(source)}\n\n{render_speaker(identity.name)}".strip(),
     )
     return [
         ChatMessage(role=ChatRole.SYSTEM, content=system),
@@ -400,6 +419,42 @@ def _sections_in_rank_order(
     for item in direct:
         seen[_heading_for(memories[item.memory_id])] = None
     return list(seen)
+
+
+def _render_direct(item: RetrievedMemory, memory: Memory, roles: dict[str, str]) -> str:
+    """Render a matched memory at whatever reach a recall gate left it.
+
+    Three states, and the middle one is where very-mild impairment actually lives:
+
+    - **whole** — the memory as authored, with its date, place and people.
+    - **hedged** — all of it, but she does not fully trust it. This is what a
+      recent memory feels like when it *does* come: the content is right and the
+      confidence is not. Without this rung a direct question ("what did you have
+      for breakfast?") cues perfectly and is answered perfectly, and the persona
+      reads as healthy no matter what the thresholds say.
+    - **gist** — the summary with no date, no place, no participants, *and* a
+      statement that the specifics are missing. The statement is load-bearing:
+      handed a bare summary the model treats the absence as a gap to fill helpfully,
+      and fills it.
+    """
+    if item.detail_withheld:
+        return (
+            f"{memory.summary} — the shape of it is there, but the particulars "
+            "(exactly when, exactly where, who else was there) will not come. Say "
+            "the part you have and admit the rest escapes you. Do not reconstruct "
+            "it, and do not guess: a blank you own is true, and a plausible detail "
+            "is a lie."
+        )
+
+    rendered = _render(memory, roles)
+    if item.hedged:
+        return (
+            f"{rendered} — this is right, but it does not come to you cleanly. Say "
+            "it as someone half-sure of their own recollection: reach for it, allow "
+            "yourself a moment, hedge it ('I think', 'as far as I recall'). Do not "
+            "recite it as though it were on a card in front of you."
+        )
+    return rendered
 
 
 def _render(memory: Memory, roles: dict[str, str]) -> str:

@@ -1,28 +1,115 @@
+/* Persona Simulator — the visual language, adopted from Project v4.
+ *
+ * The palette, the type family and the type scale are v4's, carried over verbatim
+ * so the two products read as one. Everything else here — the layout, the
+ * components, the motion, the two-surface idea below — is v5's and unchanged.
+ *
+ * Two surfaces, and the difference between them is the whole idea.
+ *
+ * THE ROOM is where you talk to her: the warm off-white ground, soft-edged. It
+ * should feel like sitting with someone.
+ *
+ * THE PAPER is where you read the record — the reveal, the coach, the ledger, the
+ * history: true white, lifted off the warm room by luminance and a shadow, ruled
+ * like a clinical form. Committing a rating ends the conversation and turns the
+ * lights on, and that shift is meant to be felt. You stop talking to a person and
+ * start reading about a patient.
+ *
+ * Every component is written against semantic tokens (--bg, --ink, --accent …), so
+ * a surface is declared by *re-binding the tokens* rather than by restyling
+ * anything. Paper is four rules at the bottom of the token block.
+ *
+ * Type is v4's: Geist for everything, Inter as its fallback, JetBrains Mono for
+ * the machine-readable — traces, evidence, the raw ledger. v4 sets no serif, so
+ * neither do we; --serif remains as a seam (her voice, display headings) but is
+ * bound to the same family as the rest.
+ *
+ * v4 is a light product with no dark mode, so this is a single light theme. The
+ * base size is v4's 18px, which is a deliberately large-type UI.
+ *
+ * Motion marks state changes and never decorates. All of it collapses under
+ * prefers-reduced-motion, at the bottom of this file.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ============================================================ tokens */
+
 :root {
-  --bg: #12110f;
-  --panel: #1b1a17;
-  --line: #2e2c28;
-  --ink: #eae6de;
-  --muted: #8f897e;
-  --user: #2f5d50;
-  --her: #24221e;
-  --accent: #c9a227;
-  --danger: #a5453b;
-  --radius: 14px;
+  /* ---- the room — v4's warm off-white ground (--bg-0) with white panels */
+  --bg: #f8f6f3;
+  --panel: #ffffff;
+  --line: rgba(0, 0, 0, 0.08);
+  --ink: #1a1a1a;
+  --muted: #6b6b6b;
+  --her: #ffffff;
+  /* v4 marks the two speakers by hue, not by weight: the patient in orange, the
+     other voice in teal. Orange is the accent here, so the caregiver takes teal. */
+  --you: #0f766e;
+  --you-ink: #f2f8f7;
+  --accent: #ea580c;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(234, 88, 12, 0.08);
+  --accent-glow: rgba(234, 88, 12, 0.18);
+  --good: #15803d;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --shadow:
+    0 8px 24px rgba(0, 0, 0, 0.08), 0 20px 60px rgba(0, 0, 0, 0.09);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* ---- type: v4 sets no serif, so --serif is bound to the same family */
+  --sans: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* v4's ladder: 12 · 13 · 14 · 16 · 18 · 20 · 24 · 34 · 50, on an 18px base. */
+  --t-2xs: 12px;
+  --t-xs: 13px;
+  --t-sm: 14px;
+  --t-md: 16px;
+  --t-base: 18px;
+  --t-lg: 20px;
+  --t-xl: 24px;
+  --t-2xl: 34px;
+  --t-3xl: 50px;
+
+  /* ---- space */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+
+  /* v4: 8px on controls, 12px on panels, 20px on cards. */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+
+  /* ---- motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 140ms;
+  --mid: 260ms;
+  --slow: 480ms;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f7f5f0;
-    --panel: #fffdf8;
-    --line: #e3ded2;
-    --ink: #23211d;
-    --muted: #7a7466;
-    --user: #d6ebe2;
-    --her: #f0ece2;
-    --accent: #8a6d1f;
-  }
+/* Paper is true white (v4's --bg-1), lifted off the warm room (--bg-0) by
+   luminance and a shadow. The accent and the status hues do not shift between the
+   two surfaces — v4 carries one orange throughout, and so do we. */
+#reveal,
+#review-view,
+.history {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --line: rgba(0, 0, 0, 0.07);
+  --her: #ffffff;
 }
+
+/* ============================================================ base */
 
 * {
   box-sizing: border-box;
@@ -32,9 +119,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.55 ui-serif, Georgia, "Times New Roman", serif;
+  font: var(--t-base) / 1.6 var(--sans);
   height: 100vh;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background var(--slow) var(--ease);
 }
 
 .hidden {
@@ -43,162 +133,374 @@ body {
 .muted {
   color: var(--muted);
 }
+.small {
+  font-size: var(--t-md);
+}
 
-/* ---------------- gallery ---------------- */
+button {
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 15px;
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.ghost {
+  color: var(--muted);
+}
+button.danger {
+  color: var(--danger);
+  border-color: transparent;
+}
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
+/* A label: small, tracked, sans. Used for every field name in the instrument. */
+.ws-label,
+.cap,
+th,
+.badge,
+.verdict,
+.sub {
+  font-family: var(--sans);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ============================================================ gallery */
+
+/* The gallery is the only full-width reading surface in the product, and edge-to-
+   edge is what made it feel like a page of results rather than a considered choice.
+   1200px and centred; the ground is the room's warm off-white with the faintest
+   vertical fall, so the cards sit *on* something instead of floating in a void. */
 #gallery {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 64px 24px;
+  width: 100%;
   height: 100vh;
   overflow-y: auto;
+  /* The content is capped at 1200 and centred, but the ground runs edge to edge.
+     Capping the element instead left a seam down both margins where the gradient
+     stopped and the flat body colour carried on. */
+  padding: var(--s8) max(var(--s6), calc((100% - 1200px) / 2)) var(--s8);
+  background: linear-gradient(180deg, #faf8f5 0%, #f4f2ed 100%);
+}
+
+/* ---- the hero: the title, what this is, and one line of why it matters */
+
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s7);
+}
+.hero-text {
+  max-width: 62ch;
 }
 
 .gallery-head h1 {
-  margin: 0 0 4px;
-  font-size: 34px;
-  letter-spacing: -0.01em;
+  margin: 0 0 var(--s5);
+  font-family: var(--serif);
+  font-size: var(--t-3xl);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
 }
-.gallery-head p {
-  margin: 0 0 32px;
+.hero-sub {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-lg);
+  font-weight: 400;
 }
+.hero-line {
+  margin: 0 0 var(--s3);
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+/* The one sentence that frames the exercise rather than describing it. */
+.hero-quiet {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-md);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.hero-mark {
+  flex: 0 0 auto;
+  width: 140px;
+  height: 140px;
+  color: var(--ink);
+  opacity: 0.16;
+  margin-top: var(--s1);
+}
+
+/* ---- the mode notice: information, not a warning.
+
+   It was an orange-outlined panel, which is the vocabulary of *something is wrong*
+   — and nothing is wrong: a hidden severity is the point of the exercise. Soft
+   ground, no border, one quiet mark. */
+.assess-note {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-start;
+  margin: var(--s6) 0 0;
+  padding: var(--s4) var(--s5);
+  border: 0;
+  border-radius: var(--radius);
+  background: #f2ede4;
+  animation: rise var(--slow) var(--ease-out) backwards;
+}
+.assess-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: var(--t-sm);
+  font-style: italic;
+  font-weight: 600;
+  line-height: 22px;
+  text-align: center;
+}
+.assess-title {
+  margin: 0 0 2px;
+  font-size: var(--t-md);
+  font-weight: 600;
+}
+.assess-body {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+/* ---- the cards */
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--s5);
+  margin-top: var(--s7);
 }
-
 .card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  padding: 28px;
+  border-radius: 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 22px;
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
   transition:
-    border-color 0.15s ease,
-    transform 0.15s ease;
+    transform var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+  animation: rise var(--slow) var(--ease-out) backwards;
+  animation-delay: 60ms;
 }
-.card:hover,
-.card:focus-visible {
-  border-color: var(--accent);
+.card:hover {
+  border-color: rgba(234, 88, 12, 0.45);
   transform: translateY(-2px);
-  outline: none;
+  box-shadow: var(--shadow);
 }
 
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+/* A monogram, not a face. The card may show only what the seed authored, and no
+   seed says what anyone looks like — a stock portrait or an emoji face would be
+   the interface inventing a patient, which is the one thing nothing here may do. */
+.avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
 .card h2 {
   margin: 0;
-  font-size: 21px;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
-.card .role {
-  margin: 2px 0 10px;
-  font-size: 13px;
-  letter-spacing: 0.06em;
+.card .card-sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+/* Three lines of blurb, then it stops. A card is an invitation, not the file. */
+.card .desc {
+  margin: 0 0 var(--s4);
+  color: var(--muted);
+  font-size: var(--t-md);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Named for the card, not generically: the worksheet's rating buttons are already
+   .chip, they are flex: 1, and a shared name meant these pills stretched to fill
+   the row. Two different things wearing one class is a bug waiting on source order. */
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+  padding: 0;
+  list-style: none;
+}
+.card-chip {
+  padding: 4px 11px;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--t-2xs);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* The card lifts on hover, but the button is what says where the click goes. */
+.card .cta {
+  margin-top: auto;
+  padding-top: var(--s4);
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  text-align: left;
+  font-size: var(--t-md);
+  font-weight: 500;
   color: var(--muted);
 }
-.card p.desc {
-  margin: 0;
-  font-size: 15px;
-  color: var(--ink);
-  opacity: 0.85;
-  /* two lines, as authored */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-clamp: 2;
-  overflow: hidden;
+.card:hover .cta,
+.card .cta:hover:not(:disabled),
+.card .cta:focus-visible {
+  color: var(--accent);
+}
+.card .cta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 
 .empty {
   color: var(--muted);
-}
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 13px;
-  background: var(--panel);
-  padding: 2px 6px;
-  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: var(--t-md);
 }
 
-/* ---------------- chat ---------------- */
+/* ============================================================ chat — the room */
 
+.view {
+  height: 100vh;
+}
 #chat {
   display: flex;
   flex-direction: column;
-  height: 100vh;
 }
 
 .navbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 20px;
+  gap: var(--s4);
+  padding: var(--s3) var(--s5);
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  flex: 0 0 auto;
 }
 .navbar .who {
   display: flex;
   flex-direction: column;
-  line-height: 1.25;
-  margin-right: auto;
+  line-height: 1.3;
 }
-.navbar .who span:first-child {
-  font-size: 17px;
+#chat-name {
+  font-family: var(--serif);
+  font-size: var(--t-lg);
 }
-.navbar .who .muted {
-  font-size: 12px;
+#chat-sub {
+  font-size: var(--t-sm);
+  color: var(--muted);
 }
 .navbar .actions {
+  margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
+}
+#back {
+  padding: 7px 13px;
 }
 
-button {
-  font: inherit;
-  font-size: 14px;
-  border-radius: 9px;
-  padding: 8px 14px;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink);
+.badge {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: var(--accent-soft);
 }
-button:hover:not(:disabled) {
-  border-color: var(--accent);
+
+.chat-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
 }
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-button.danger {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-button.danger:hover:not(:disabled) {
-  background: var(--danger);
-  color: #fff;
-}
-#send {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #12110f;
+.chat-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .messages {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 28px 20px;
+  padding: var(--s6) var(--s5);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 820px;
-  width: 100%;
-  margin: 0 auto;
+  gap: var(--s3);
 }
 
 .row {
@@ -207,46 +509,127 @@ button.danger:hover:not(:disabled) {
 .row.user {
   justify-content: flex-end;
 }
-.row.persona {
-  justify-content: flex-start;
-}
 
+/* Her voice. v4 sets its transcript a step above the body size and a shade looser
+   than the instrument around it, and that is what carries the warmth here now
+   that the serif is gone. */
 .bubble {
-  max-width: 74%;
-  padding: 12px 16px;
+  position: relative;
+  max-width: min(62ch, 78%);
+  padding: 11px var(--s4);
   border-radius: var(--radius);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.row.user .bubble {
-  background: var(--user);
-  border-bottom-right-radius: 4px;
+  background: var(--her);
+  font-family: var(--serif);
+  font-size: var(--t-lg);
+  line-height: 1.65;
+  /* White on v4's off-white ground is a two-point delta — every white surface in
+     v4 is drawn by its hairline, not by its fill. */
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--mid) var(--ease-out) backwards;
 }
 .row.persona .bubble {
-  background: var(--her);
-  border: 1px solid var(--line);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: var(--radius-sm);
 }
-
-.bubble.thinking {
-  color: var(--muted);
-  font-style: italic;
+.row.user .bubble {
+  background: var(--you);
+  color: var(--you-ink);
+  border-color: transparent;
+  border-bottom-right-radius: var(--radius-sm);
 }
 .bubble.error {
-  border-color: var(--danger);
   color: var(--danger);
+  font-family: var(--sans);
+  font-size: var(--t-md);
 }
 
-/* The memory trace: why she said that. Folded away, never hidden. */
+/* Waiting on her. A travelling dot rather than a static ellipsis — the model can
+   take half a minute, and a still page reads as a broken one. */
+.bubble.thinking {
+  color: transparent;
+  min-width: 74px;
+  min-height: 42px;
+}
+.bubble.thinking::after {
+  content: "";
+  position: absolute;
+  left: var(--s4);
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow:
+    12px 0 var(--muted),
+    24px 0 var(--muted);
+  animation: travel 1.15s steps(1) infinite;
+}
+
+.composer {
+  display: flex;
+  gap: var(--s2);
+  padding: var(--s4) var(--s5) var(--s5);
+  border-top: 1px solid var(--line);
+}
+#input {
+  flex: 1 1 auto;
+  padding: 12px var(--s4);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: var(--t-base);
+  transition:
+    border-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+}
+#input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+#send {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 600;
+  padding-inline: var(--s5);
+}
+#send:hover:not(:disabled) {
+  color: var(--accent-ink);
+  filter: brightness(1.08);
+}
+
+.ended {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--t-md);
+  animation: rise var(--mid) var(--ease-out) backwards;
+}
+
+/* ---- the why-panel (Stage 9, and review mode reuses it wholesale) */
+
 .why {
-  margin-top: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px dashed var(--line);
+  font-family: var(--sans);
+  font-size: var(--t-sm);
 }
 .why summary {
   cursor: pointer;
-  color: var(--muted);
   list-style: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  transition: color var(--fast) var(--ease);
 }
 .why summary::-webkit-details-marker {
   display: none;
@@ -254,61 +637,571 @@ button.danger:hover:not(:disabled) {
 .why summary:hover {
   color: var(--accent);
 }
-.why .reason {
+.why[open] summary {
+  margin-bottom: var(--s2);
+}
+.why .reason,
+.why .formed {
+  margin: 0 0 var(--s2);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  line-height: 1.6;
   color: var(--muted);
-  margin: 8px 0 6px;
+}
+.why .formed {
+  color: var(--good);
 }
 .why ul {
-  margin: 0;
-  padding-left: 16px;
+  margin: 0 0 var(--s2);
+  padding-left: var(--s4);
   color: var(--muted);
 }
 .why li {
   margin-bottom: 3px;
+  line-height: 1.5;
 }
-.why .score {
+.why .score,
+.why .via {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+}
+.why .withheld li {
+  color: var(--warn);
+}
+
+/* ============================================================ worksheet */
+
+.worksheet {
+  flex: 0 0 312px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+  padding: var(--s5) var(--s4);
+  overflow-y: auto;
+}
+.worksheet h2 {
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-xl);
+  font-weight: 500;
+}
+.worksheet > p {
+  margin: 0 0 var(--s5);
+  color: var(--muted);
+  font-size: var(--t-md);
+}
+
+.ws-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin-bottom: var(--s5);
+}
+.ws-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ws-row.global {
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+.ws-label {
+  color: var(--muted);
+}
+.ws-row.global .ws-label {
   color: var(--accent);
 }
-.why .via {
-  color: var(--muted);
+.ws-note {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--t-2xs);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  font-style: italic;
   opacity: 0.75;
 }
-.why .formed {
-  margin-top: 8px;
+
+.chips {
+  display: flex;
+  gap: 6px;
+}
+.chip {
+  flex: 1;
+  padding: 8px 0;
+  font-size: var(--t-md);
+  font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.chip:hover:not(.on) {
+  transform: translateY(-1px);
+}
+.chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 3px 14px var(--accent-glow);
+  animation: pick var(--mid) var(--ease-out);
+}
+
+/* The anchor: reserve enough space that picking a rating does not shove the rows
+   below it down the page — but only one line's worth, because an unrated worksheet
+   reserving two lines per domain reads as five gaps rather than five questions. */
+.ws-anchor {
+  margin: 6px 0 0;
+  min-height: 18px;
+  font-size: var(--t-sm);
+  line-height: 1.45;
+  color: var(--muted);
+  transition: color var(--fast) var(--ease);
+}
+.ws-anchor.preview {
   color: var(--accent);
 }
 
-.composer {
-  flex: 0 0 auto;
-  display: flex;
-  gap: 10px;
-  padding: 16px 20px 22px;
-  border-top: 1px solid var(--line);
-  max-width: 820px;
+#commit {
   width: 100%;
-  margin: 0 auto;
-}
-#input {
-  flex: 1;
-  font: inherit;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-}
-#input:focus {
-  outline: none;
+  padding: 12px;
   border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+#commit:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+/* Armed: the second click reveals the answer, so the button says so and breathes. */
+#commit.armed {
+  background: var(--accent);
+  color: var(--accent-ink);
+  animation: pulse 1.6s var(--ease) infinite;
+}
+#commit-hint {
+  margin: var(--s2) 0 0;
+  font-size: var(--t-sm);
+  color: var(--muted);
+  min-height: 2.4em;
 }
 
-.ended {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 18px;
-  border-top: 1px solid var(--line);
+.guide {
+  margin-top: var(--s5);
+  font-size: var(--t-sm);
   color: var(--muted);
+}
+.guide summary {
+  cursor: pointer;
+  list-style: none;
+  transition: color var(--fast) var(--ease);
+}
+.guide summary::-webkit-details-marker {
+  display: none;
+}
+.guide summary:hover {
+  color: var(--accent);
+}
+.guide ul {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s4);
+}
+.guide li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+/* ============================================================ the paper */
+
+#reveal,
+#review-view {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--s7) var(--s5) var(--s8);
+  width: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  animation: lights-up var(--slow) var(--ease-out);
+}
+#reveal > *,
+#review-view > * {
+  max-width: 880px;
+  margin-inline: auto;
+}
+
+.reveal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s7);
+  margin-bottom: var(--s5);
+  padding-bottom: var(--s5);
+  border-bottom: 2px solid var(--ink);
+}
+.reveal-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.reveal-col h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: var(--t-2xl);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.sub,
+.reveal-col .muted {
+  color: var(--muted);
+}
+
+.verdict {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 6px 15px;
+  border: 1px solid var(--line);
+  animation: pick var(--slow) var(--ease-out) 200ms backwards;
+}
+.verdict.match {
+  border-color: var(--good);
+  color: var(--good);
+}
+/* A miss is the thing you learn from, not an error. Amber, never red. */
+.verdict.miss {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.reveal-domains {
+  display: flex;
+  gap: var(--s6);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+  padding-bottom: var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+.reveal-domain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reveal-domain .val {
+  font-size: var(--t-lg);
+  font-variant-numeric: tabular-nums;
+}
+.reveal-domain.missed .val {
+  color: var(--warn);
+}
+.reveal-domain .was {
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+
+/* ---- coach */
+
+.coach {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.coach-card {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: var(--s4) var(--s5);
+  box-shadow: var(--shadow-sm);
+  animation: rise var(--slow) var(--ease-out) backwards;
+}
+.coach-card:nth-child(1) {
+  animation-delay: 80ms;
+}
+.coach-card:nth-child(2) {
+  animation-delay: 160ms;
+}
+.coach-card:nth-child(3) {
+  animation-delay: 240ms;
+}
+.coach-card:nth-child(4) {
+  animation-delay: 320ms;
+}
+.coach-card:nth-child(n + 5) {
+  animation-delay: 400ms;
+}
+.coach-card.discriminating {
+  border-left-color: var(--warn);
+}
+.coach-card.coverage {
+  border-left-color: var(--accent);
+}
+.coach-card.confirming {
+  border-left-color: var(--good);
+}
+.coach-card h3 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0 0 var(--s3);
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+.coach-card .tag {
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.coach-card.discriminating .tag {
+  color: var(--warn);
+}
+.coach-card.coverage .tag {
+  color: var(--accent);
+}
+.coach-card.confirming .tag {
+  color: var(--good);
+}
+.coach-card .dom {
+  text-transform: capitalize;
+}
+.coach-line {
+  margin: 0 0 7px;
+  font-size: var(--t-base);
+  line-height: 1.55;
+}
+/* Evidence is quoted from the ledger — set in mono and indented so a trainee can
+   always tell what was observed from what was concluded. */
+.coach-evidence {
+  margin: 0 0 5px var(--s4);
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ---- raw ledger, folded away */
+
+.ledger-details {
+  margin-bottom: var(--s5);
+}
+.ledger-details summary {
+  cursor: pointer;
+  font-size: var(--t-md);
+  color: var(--muted);
+  margin-bottom: var(--s3);
+  transition: color var(--fast) var(--ease);
+}
+.ledger-details summary:hover {
+  color: var(--accent);
+}
+pre.report {
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  line-height: 1.65;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s5);
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.reveal-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+
+/* ---- review mode */
+
+.review-note {
+  margin: 0 0 var(--s4);
+  color: var(--muted);
+}
+.review-turns {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--s5);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  overflow: visible;
+  flex: none;
+}
+
+/* ---- history */
+
+.history {
+  margin-top: var(--s7);
+  padding: var(--s5) var(--s5) var(--s4);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  animation: rise var(--slow) var(--ease-out) 120ms backwards;
+}
+.history h2 {
+  margin: 0 0 var(--s1);
+  font-family: var(--serif);
+  font-size: var(--t-xl);
+  font-weight: 500;
+}
+.history > p {
+  margin: 0 0 var(--s4);
+  color: var(--muted);
+}
+/* Eight columns of "CDR 0 (healthy)" wrap to two lines at any sane width, which
+   turns a scannable record into a wall. The ratings stay on one line and the table
+   scrolls sideways if it must — a history is read down the verdict column. */
+.history {
+  overflow-x: auto;
+}
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-md);
+  white-space: nowrap;
+}
+.history-table td:nth-child(2) {
+  white-space: normal;
+  min-width: 15ch;
+}
+.history-table th {
+  text-align: left;
+  padding: 0 var(--s3) var(--s2) 0;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.history-table td {
+  padding: 10px var(--s3) 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.history-table tr:last-child td {
+  border-bottom: none;
+}
+.history-table .verdict-cell {
+  text-align: right;
+  padding-right: 0;
+  font-size: var(--t-2xs);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.history-table tr.hit .verdict-cell {
+  color: var(--good);
+}
+.history-table tr.miss .verdict-cell {
+  color: var(--warn);
+}
+
+/* ============================================================ motion */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes lights-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.995);
+  }
+}
+
+@keyframes pick {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.045);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* Three dots, one lit at a time. Drawn with box-shadow so it needs no markup. */
+@keyframes travel {
+  0% {
+    background: var(--ink);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--muted);
+  }
+  33% {
+    background: var(--muted);
+    box-shadow:
+      12px 0 var(--ink),
+      24px 0 var(--muted);
+  }
+  66% {
+    background: var(--muted);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--ink);
+  }
+  100% {
+    background: var(--ink);
+    box-shadow:
+      12px 0 var(--muted),
+      24px 0 var(--muted);
+  }
+}
+
+/* Motion here marks state changes, so under reduced-motion the states still have
+   to read — everything collapses to an instant, nothing is removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .bubble.thinking::after {
+    animation: none;
+    background: var(--muted);
+  }
+}
+
+/* ============================================================ narrow */
+
+@media (max-width: 900px) {
+  .chat-body {
+    flex-direction: column;
+  }
+  .worksheet {
+    flex: none;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  .reveal-head {
+    gap: var(--s5);
+    flex-wrap: wrap;
+  }
+  #gallery {
+    padding: var(--s6) var(--s4);
+  }
+  /* The mark is decoration, and decoration is the first thing to go when the
+     column narrows enough to squeeze the sentence it sits beside. */
+  .hero-mark {
+    display: none;
+  }
+  .card {
+    padding: var(--s5);
+  }
 }
