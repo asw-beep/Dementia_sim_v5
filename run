@@ -3,6 +3,7 @@
 # Bring the persona up, and take it back down.
 #
 #   ./run start           seed if needed, check the model, serve — healthy
+#                         (the model check waits 10s, then serves without it anyway)
 #   ./run start cdr05     the same, at CDR 0.5 (any name in data/profiles/)
 #   ./run kill            stop the server
 #   ./run status          is anything up, can it reach the model, which severity
@@ -23,8 +24,12 @@ PORT="${PERSONA_PORT:-8000}"
 # host on this port can talk to the persona and read everything she has been told.
 # Only run this on a network you trust. Set PERSONA_HOST=127.0.0.1 for loopback only.
 HOST="${PERSONA_HOST:-0.0.0.0}"
-SEED="data/personas/elena.yaml"
-PERSONA="elena-marsh"
+# Every authored persona, not a named one. This used to be a single hardcoded path,
+# which was true for exactly as long as there was one seed file — a second persona
+# would have appeared nowhere, because `start` seeds and the gallery only lists what
+# the database already holds. Seeding is idempotent by memory id, so running the whole
+# directory every time costs nothing and cannot miss a new file.
+SEEDS="data/personas"
 RUNTIME=".run"
 PIDFILE="$RUNTIME/server.pid"
 LOGFILE="$RUNTIME/server.log"
@@ -44,8 +49,16 @@ running() {
 # The model lives somewhere else — a remote GPU box, per .env — and it is the one
 # part of this that can simply be absent. Better to say so now than to let the
 # first message fail in the browser.
+#
+# Bounded, because "absent" and "slow to say so" look identical from here: a host
+# that is off answers with a TCP timeout measured in minutes, and the check would
+# sit there long after the answer was obvious. Ten seconds is far more than a
+# reachable Ollama needs to list its models. `-k` because the timeout is sent to
+# `uv`, and a child that ignores TERM should not outlive it.
+MODEL_TIMEOUT="${PERSONA_MODEL_TIMEOUT:-10}"
+
 model_reachable() {
-  uv run python - <<'PY' 2>/dev/null
+  timeout -k 2 "${MODEL_TIMEOUT}s" uv run python - <<'PY' 2>/dev/null
 from personasim.config import get_settings
 from personasim.llm import build_client
 settings = get_settings()
@@ -58,7 +71,10 @@ PY
 start() {
   if running; then
     say "already running: http://127.0.0.1:$PORT  (pid $(cat "$PIDFILE"))"
-    say "  (`./run kill` first if you want to change profile)"
+    # Single-quoted: in double quotes the backticks are command substitution, so
+    # this hint used to *run* `./run kill` — printing the advice took the server
+    # down, and then said it was already up.
+    say '  (./run kill first if you want to change profile)'
     exit 0
   fi
 
@@ -77,19 +93,27 @@ start() {
 
   printf '\nStarting the persona simulator.\n\n'
 
-  say "checking the model…"
+  # A missing model is a warning, not a stop. The UI, the gallery, the assessment
+  # flow and the reveal are all served without ever asking the model anything — only
+  # a persona's *reply* needs it. Refusing to start meant the front end could not be
+  # worked on at all whenever the GPU box was off, which is the wrong trade: let it
+  # come up, and let the turn that actually needs a model be the thing that fails.
+  say "checking the model… (${MODEL_TIMEOUT}s)"
   if model=$(model_reachable); then
     say "  ok — $model"
   else
-    fail "cannot reach the model. Is Ollama up on the host in .env?
-       Check with:  uv run python -c 'from personasim.config import get_settings as g; print(g().llm_host)'"
+    say "  ⚠ no model — starting anyway."
+    say "    The site will load; anything that asks her to speak will error."
+    say "    Is Ollama up on the host in .env?  uv run python -c 'from personasim.config import get_settings as g; print(g().llm_host)'"
   fi
 
   # Idempotent by memory id, so re-seeding an existing database is a no-op. It will
   # warn — loudly — if the seed file has been edited since, because a silent skip is
   # how an edited persona rots in a database.
-  say "seeding $PERSONA…"
-  uv run persona seed "$SEED" 2>&1 | sed 's/^/    /'
+  say "seeding personas…"
+  for seed in "$SEEDS"/*.yaml; do
+    uv run persona seed "$seed" 2>&1 | sed 's/^/    /'
+  done
 
   say "serving on $HOST…"
   # Bind address is $HOST (see the top of the file). Default is 0.0.0.0 so other
@@ -181,7 +205,7 @@ status() {
   if model=$(model_reachable); then
     say "model:   ok   → $model"
   else
-    say "model:   unreachable"
+    say "model:   unreachable (gave it ${MODEL_TIMEOUT}s)"
   fi
 
   if [[ -f data/persona.db ]]; then
@@ -190,11 +214,15 @@ from personasim.storage import Database, PersonaRepository
 from personasim.config import get_settings
 db = Database.from_path(get_settings().database_path)
 with db.session() as session:
-    persona = PersonaRepository(session).load("elena-marsh")
-print(len(persona.memories) if persona else 0, end="")
+    repo = PersonaRepository(session)
+    counts = []
+    for persona_id, identity in repo.list_identities():
+        persona = repo.load(persona_id)
+        counts.append(f"{identity.name} {len(persona.memories) if persona else 0}")
+print(", ".join(counts) or "0", end="")
 PY
 )
-    say "memory:  $memories memories in data/persona.db"
+    say "memory:  $memories — in data/persona.db"
   else
     say "memory:  not seeded"
   fi
@@ -210,11 +238,14 @@ case "${1:-}" in
     stop
     rm -f data/persona.db
     say "database wiped."
-    uv run persona seed "$SEED" 2>&1 | sed 's/^/  /'
+    for seed in "$SEEDS"/*.yaml; do
+      uv run persona seed "$seed" 2>&1 | sed 's/^/  /'
+    done
     ;;
   *)
     printf 'usage: ./run {start [profile|assess]|kill|status|logs|reset}\n\n'
     printf '  start          seed if needed, check the model, serve on :%s (healthy)\n' "$PORT"
+  printf '                 the model check is capped at %ss (PERSONA_MODEL_TIMEOUT); it serves either way\n' "$MODEL_TIMEOUT"
     printf '  start cdr05    the same, at CDR 0.5\n'
     printf '  start assess   blind assessment: hidden severity per session, rate it, reveal\n'
     printf '  kill           stop the server\n'
