@@ -17,7 +17,8 @@ a shared store starts earning its place. It does not earn it before then.
 profile, the store draws a hidden severity per session — genuinely at random, on
 purpose: the hash-not-roll invariant exists so an impaired session replays
 identically, and that reasoning protects `impairment/`; the draw's one job is to
-be unguessable. The drawn profile is written to the assessments table (the reveal
+be unguessable. Its one constraint is that it never repeats the previous session's
+stage --- see `_draw`. The drawn profile is written to the assessments table (the reveal
 has to read it from somewhere that is not the UI) and appears nowhere else — not
 in a log line, not in an `Exchange`. A blind session's exchanges carry **no
 trace**: the trace names withheld memories and their reasons, which is the answer
@@ -80,6 +81,7 @@ class SessionStore:
         self._live: dict[SessionId, Conversation] = {}
         self._transcripts: dict[SessionId, list[Exchange]] = {}
         self._blind: set[SessionId] = set()
+        self._last_draw: str | None = None
 
     @property
     def profile(self) -> CognitiveProfile:
@@ -92,11 +94,34 @@ class SessionStore:
     def is_blind(self, session_id: SessionId) -> bool:
         return session_id in self._blind
 
+    def _draw(self, pool: Sequence[CognitiveProfile]) -> CognitiveProfile:
+        """The hidden severity for one session.
+
+        `secrets.choice`, not a hash: unpredictability is the point. The stage
+        drawn for the *previous* session is held out of the pool, so the same one
+        can never come up twice running. That rule is not statistical tidiness —
+        a run of identical draws reads as a broken simulator long before it reads
+        as a coincidence, and a trainee who stops believing the severity is real
+        is no longer being trained.
+
+        The cost is stated plainly because it is real: a trainee who has just been
+        shown one answer can rule that stage out of the next draw, so the session
+        after a reveal is a choice of four rather than five. The draw is still
+        unguessable; it is one bit less unguessable. That is the trade, and it is
+        the right way round — a streak costs the instrument its credibility, which
+        is worth more than the bit.
+
+        A single-profile pool has nothing to hold out, and keeps its one profile.
+        """
+        candidates = [p for p in pool if p.name != self._last_draw] or list(pool)
+        drawn = secrets.choice(candidates)
+        self._last_draw = drawn.name
+        return drawn
+
     def open(self, persona: Persona) -> SessionId:
         profile = self._profile
         if self._pool is not None:
-            # The draw. `secrets.choice`, not a hash: unpredictability is the point.
-            profile = secrets.choice(self._pool)
+            profile = self._draw(self._pool)
 
         chat = Conversation(persona, self._llm, self._database, self._settings, profile=profile)
         chat.start()

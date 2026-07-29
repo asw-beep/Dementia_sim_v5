@@ -390,6 +390,28 @@ class TestAssessmentMode:
         assert turns
         assert all(turn["trace"] is None for turn in turns)
 
+    def test_the_draw_never_repeats_the_previous_session(
+        self, assessment: tuple[TestClient, Database]
+    ) -> None:
+        """Three healthy draws in a row read as a broken simulator, not as a 1/125
+        coincidence — and that is what a trainee actually concluded. Consecutive
+        sessions therefore never draw the same stage. Twenty openings: uniform over
+        five profiles this fails within a handful of runs without the hold-out."""
+        from itertools import pairwise
+
+        from personasim.storage import AssessmentRepository
+
+        client, database = assessment
+        sessions = [open_session(client) for _ in range(20)]
+
+        with database.session() as db:
+            repository = AssessmentRepository(db)
+            drawn = [record.actual_profile for s in sessions if (record := repository.get(s))]
+
+        assert len(drawn) == 20
+        assert all(a != b for a, b in pairwise(drawn))
+        assert len(set(drawn)) > 1  # still varying, not pinned to two alternating
+
     def test_the_draw_is_recorded_in_storage_not_in_any_response(
         self, assessment: tuple[TestClient, Database]
     ) -> None:
