@@ -450,7 +450,7 @@ def _render_direct(item: RetrievedMemory, memory: Memory, roles: dict[str, str])
     if item.hedged:
         return (
             f"{rendered} — this is right, but it does not come to you cleanly. Say "
-            "it as someone half-sure of her own recollection: reach for it, allow "
+            "it as someone half-sure of their own recollection: reach for it, allow "
             "yourself a moment, hedge it ('I think', 'as far as I recall'). Do not "
             "recite it as though it were on a card in front of you."
         )

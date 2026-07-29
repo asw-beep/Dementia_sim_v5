@@ -11,6 +11,7 @@ which skip when Ollama is not running.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from personasim.llm.context_builder import (
     render_speaker,
 )
 from personasim.llm.ollama import OllamaClient, strip_thinking
+from personasim.llm.prompts import RULES
 from personasim.models import (
     Identity,
     Memory,
@@ -229,6 +231,33 @@ class TestIdentityInThePrompt:
 
         assert "not an encyclopedia" in prompt
         assert "never produce a definition, a formula" in prompt
+
+    def test_the_standing_rules_describe_no_particular_persona(self) -> None:
+        """`RULES` is shared by every persona, so it may not describe one of them.
+
+        It described Elena for as long as she was the only one. In second person it
+        said "a woman of your age and trade", and it handed over "maps and coastlines
+        and surveying" as the subject the persona was licensed to talk about all day.
+        Both read as harmless illustration with one seed file on disk. With two they
+        are false: the first tells a retired marine engineer that he is a woman, and
+        the second gives every persona a cartographer's warrant to hold forth on a
+        trade that is not theirs — inside the very rule that exists to stop him.
+
+        The persona's sex and craft belong in exactly one place, the identity block,
+        which is authored per persona. Nothing in the standing rules may restate them.
+
+        `she`/`her` survive in one line and are meant to: "while holding the memory of
+        her dying, you say yes: she died" is about the persona's *mother*, and every
+        persona has one.
+        """
+        assert "a person of your age" in RULES
+        assert "your own trade" in RULES
+
+        for word in ("woman", "women", "cartographer", "coastline", "surveying"):
+            assert word not in RULES.casefold(), f"{word!r} describes one persona, not all"
+
+        # "maps" as a standalone word, not the "maps" inside e.g. "roadmaps".
+        assert not re.search(r"\bmaps\b", RULES, re.IGNORECASE)
 
     def test_she_does_not_know_her_own_ancestry(self, identity: Identity) -> None:
         """Ancestry, religion, politics, health: they *feel* like things a person
